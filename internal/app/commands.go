@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
+	"unicode"
 
 	"github.com/microck/moji/internal/cache"
 	"github.com/microck/moji/internal/config"
@@ -67,12 +69,73 @@ func (application App) runConfig(current config.Config, path string, args []stri
 	if editor == "" {
 		return application.fail(fmt.Errorf("Moji couldn't open the config because $EDITOR is not set. Set EDITOR to your preferred editor or edit %s directly", path), 1)
 	}
-	command := exec.Command(editor, path)
+	editorCommand, err := parseEditorCommand(editor)
+	if err != nil {
+		return application.fail(fmt.Errorf("Moji couldn't parse $EDITOR: %w. Set EDITOR to an executable with optional shell-style arguments or edit %s directly", err, path), 1)
+	}
+	command := exec.Command(editorCommand[0], append(editorCommand[1:], path)...)
 	command.Stdin, command.Stdout, command.Stderr = application.Stdin, application.Stdout, application.Stderr
 	if err := command.Run(); err != nil {
 		return application.fail(fmt.Errorf("the editor couldn't open %s: %w. Your config file was not changed by Moji", path, err), 1)
 	}
 	return 0
+}
+
+func parseEditorCommand(value string) ([]string, error) {
+	var command []string
+	var current strings.Builder
+	var quote rune
+	tokenStarted := false
+	runes := []rune(value)
+	flush := func() {
+		if tokenStarted {
+			command = append(command, current.String())
+			current.Reset()
+			tokenStarted = false
+		}
+	}
+
+	for index := 0; index < len(runes); index++ {
+		character := runes[index]
+		if quote != 0 {
+			if character == quote {
+				quote = 0
+				continue
+			}
+			// Within double quotes, only escape a quote or another backslash.
+			// This preserves Windows paths such as C:\Program Files\Editor.
+			if character == '\\' && quote == '"' && index+1 < len(runes) && (runes[index+1] == '"' || runes[index+1] == '\\') {
+				index++
+				character = runes[index]
+			}
+			current.WriteRune(character)
+			tokenStarted = true
+			continue
+		}
+
+		switch {
+		case character == '\'' || character == '"':
+			quote = character
+			tokenStarted = true
+		case unicode.IsSpace(character):
+			flush()
+		case character == '\\' && index+1 < len(runes) && (unicode.IsSpace(runes[index+1]) || runes[index+1] == '\'' || runes[index+1] == '"' || runes[index+1] == '\\'):
+			index++
+			current.WriteRune(runes[index])
+			tokenStarted = true
+		default:
+			current.WriteRune(character)
+			tokenStarted = true
+		}
+	}
+	if quote != 0 {
+		return nil, errors.New("the value contains an unterminated quote")
+	}
+	flush()
+	if len(command) == 0 {
+		return nil, errors.New("the value is empty")
+	}
+	return command, nil
 }
 
 func (application App) runCache(args []string) int {

@@ -64,9 +64,14 @@ func ParseFilename(filename string) Tags {
 	for index := 0; index < len(parts); index++ {
 		part := parts[index]
 		compact := strings.ReplaceAll(part, " ", "")
-		if index+1 < len(parts) && (compact == "semi" || compact == "demi") && parts[index+1] == "bold" {
-			compact += "bold"
-			index++
+		if index+1 < len(parts) {
+			// Camel-case and separators both split compound weights. Recombine
+			// only pairs already defined in weights so family words stay intact.
+			combined := compact + parts[index+1]
+			if _, ok := weights[combined]; ok {
+				compact = combined
+				index++
+			}
 		}
 		italic := false
 		for _, suffix := range []string{"italic", "oblique"} {
