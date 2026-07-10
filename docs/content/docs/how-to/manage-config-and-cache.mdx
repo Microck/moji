@@ -1,0 +1,40 @@
+---
+title: Manage configuration and cache
+description: Change persistent defaults, inspect effective settings, and clear cached results.
+---
+
+## Edit configuration
+
+Set `EDITOR` and run:
+
+```sh
+export EDITOR=nano
+moji config
+```
+
+The default path is `~/.moji/config.yaml`. Set `MOJI_CONFIG` to use another
+file:
+
+```sh
+MOJI_CONFIG="$PWD/moji.yaml" moji config
+```
+
+## Inspect effective settings
+
+```sh
+moji config show
+```
+
+The command prints JSON and redacts a configured GitHub token.
+
+## Bypass or clear cache
+
+Search results are cached by normalized query, provider, and format set.
+
+```sh
+moji "Inter" --no-cache
+moji cache clear
+```
+
+Use `--no-cache` when you need a fresh provider response for one invocation.
+Use `cache clear` to remove all saved search responses.

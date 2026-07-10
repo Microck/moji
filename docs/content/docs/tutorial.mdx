@@ -1,0 +1,98 @@
+---
+title: Install Moji and find your first font
+description: Install the CLI, inspect a ranked result, and download a validated font.
+icon: GraduationCap
+---
+
+This tutorial takes you from installation to a downloaded font. You need a
+terminal and npm, pnpm, or Bun. You do not need Go.
+
+## 1. Install the CLI
+
+Use one package manager.
+
+### npm
+
+```sh
+npm install --global @microck/moji
+```
+
+### pnpm
+
+```sh
+pnpm add --global @microck/moji
+```
+
+### Bun
+
+```sh
+bun add --global @microck/moji
+```
+
+Confirm that the launcher can find its bundled binary:
+
+```sh
+moji --version
+```
+
+The command prints `0.1.0`.
+
+## 2. Search interactively
+
+Search for the Inter family:
+
+```sh
+moji "Inter"
+```
+
+In a terminal, Moji opens its live result interface. Use:
+
+- `up` and `down` to move between results
+- `enter` to inspect the selected file
+- `f` to cycle the format filter
+- `/` to filter the current results
+- `tab` to change sorting
+- `q` to exit
+
+Provider statuses change as results arrive. A provider failure does not discard
+results returned by another provider.
+
+## 3. Preview a non-interactive choice
+
+Ask Moji to choose a bold face without downloading:
+
+```sh
+moji get "Inter bold" --dry-run
+```
+
+The output begins with `Would download:` and lists the selected format, weight,
+source, size when known, and license hint.
+
+## 4. Download the result
+
+Run the same command without `--dry-run`:
+
+```sh
+moji get "Inter bold"
+```
+
+The default destination is `~/Downloads/moji`. A successful download reports
+its final path.
+
+Before the file reaches that path, Moji:
+
+1. requires HTTPS unless you explicitly allow HTTP;
+2. limits redirects and download size;
+3. checks the font signature;
+4. writes to a temporary file;
+5. atomically moves the validated file into place; and
+6. deduplicates matching content by SHA-256.
+
+You now have a validated font file and know how to inspect the result before
+downloading it.
+
+## Next steps
+
+- [Search and filter results](./how-to/search-and-filter.mdx)
+- [Enable authenticated GitHub search](./how-to/github-authentication.mdx)
+- [Automate Moji with JSON](./how-to/automate-with-json.mdx)

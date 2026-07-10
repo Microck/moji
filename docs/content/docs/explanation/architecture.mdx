@@ -1,0 +1,64 @@
+---
+title: Architecture
+description: How Moji separates providers, aggregation, ranking, interfaces, and downloads.
+---
+
+Moji is organized as a pipeline with typed boundaries:
+
+```text
+query
+  -> enabled providers
+  -> typed result and status events
+  -> aggregation and cache
+  -> normalization, grouping, and ranking
+  -> TUI, table, or JSON
+  -> validated download
+```
+
+## Providers own external contracts
+
+Each provider implements the same interface but owns its request format,
+response parsing, and source-specific errors. GitHub, GetFonts, and SearXNG
+live in separate modules so changes to one external contract do not tangle the
+others.
+
+Providers emit:
+
+- result events containing a normalized `Result` record;
+- searching and done status;
+- throttled status with an optional retry delay; and
+- failed status with a typed cause.
+
+## Aggregation owns concurrency and resilience
+
+The aggregator starts one worker per selected provider. It forwards events as
+they arrive, applies timeout and retry policies, respects provider retry
+delays, and isolates provider panics.
+
+This boundary enables partial success. A failed provider does not invalidate a
+result already returned by another source.
+
+## Ranking owns font interpretation
+
+The ranking package converts filename conventions into a family, weight,
+format, and style. It also owns weight filtering and family selection. The CLI
+and TUI use the same functions instead of implementing their own filename
+rules.
+
+## Interfaces own presentation
+
+The app package chooses the interface:
+
+- real stdin and stdout terminals receive the live Bubble Tea interface;
+- redirected output receives a stable table;
+- `--json` receives structured results; and
+- `get` performs non-interactive selection and optional download.
+
+Provider failure descriptions and result identity are shared domain rules, so
+all interfaces present consistent outcomes.
+
+## Downloads own file safety
+
+The download package is the only path that turns a remote result into a final
+file. It validates the transport, content, and destination before an atomic
+rename. Presentation layers only choose a result and report the outcome.

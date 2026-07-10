@@ -1,0 +1,5 @@
+{
+  "title": "Moji",
+  "root": true,
+  "pages": ["index", "tutorial", "---Use Moji---", "how-to", "---Reference---", "reference", "---Understand Moji---", "explanation"]
+}

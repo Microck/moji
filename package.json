@@ -1,0 +1,25 @@
+{
+  "name": "@microck/moji",
+  "version": "0.1.0",
+  "description": "A cozy terminal font finder with safe downloads and script-friendly output.",
+  "type": "module",
+  "bin": { "moji": "bin/moji.js" },
+  "files": ["bin/", "binaries/", "README.md"],
+  "engines": { "node": ">=18" },
+  "keywords": ["cli", "font", "font-finder", "terminal", "typography"],
+  "license": "MIT",
+  "publishConfig": { "access": "public" },
+  "workspaces": ["docs"],
+  "scripts": {
+    "build:binaries": "tsx scripts/build-binaries.ts",
+    "docs:build": "npm run build --workspace @microck/moji-docs",
+    "docs:check": "npm run check --workspace @microck/moji-docs",
+    "docs:dev": "npm run dev --workspace @microck/moji-docs",
+    "prepack": "npm run build:binaries",
+    "verify": "go vet ./cmd/... ./internal/... ./e2e/... && go test ./cmd/... ./internal/... ./e2e/... && npm run docs:check && npm run docs:build"
+  },
+  "devDependencies": {
+    "tsx": "4.20.6",
+    "typescript": "6.0.3"
+  }
+}

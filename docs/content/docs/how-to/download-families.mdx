@@ -1,0 +1,30 @@
+---
+title: Download a font family
+description: Select multiple weights from the highest-ranked family source.
+---
+
+Add `entire family` or `all weights` to a `get` query:
+
+```sh
+moji get "Inter entire family" --dry-run
+moji get "Source Sans all weights" --format otf --dry-run
+```
+
+Moji groups files by normalized family name and source. It selects files from
+the source containing the highest-ranked result instead of mixing unrelated
+uploads.
+
+Use `--max` to cap the number of files:
+
+```sh
+moji get "Inter entire family" --max 6 --dry-run
+```
+
+After reviewing the list, remove `--dry-run`:
+
+```sh
+moji get "Inter entire family" --max 6
+```
+
+Existing content is deduplicated by SHA-256 even when two sources use different
+filenames. Moji refuses to overwrite a different file with the same filename.
