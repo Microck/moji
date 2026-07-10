@@ -1,0 +1,50 @@
+---
+title: Errors and exit codes
+description: Understand failures, preserved state, and the next recovery step.
+---
+
+Moji writes errors to stderr with the prefix `moji:`.
+
+## Exit codes
+
+| Code | Meaning | Examples |
+| --- | --- | --- |
+| `0` | Success | Results printed, dry run completed, download completed |
+| `1` | Operational failure | Provider outage, invalid downloaded content, filesystem failure |
+| `2` | Invalid usage | Missing query, unknown flag, unsupported format, invalid `--max` |
+
+## Common failures
+
+### No provider completed the search
+
+Check the provider-specific explanations that follow the first sentence.
+Verify connectivity and provider configuration, then retry. GetFonts remains
+the fallback when GitHub authentication is unavailable.
+
+### GitHub search is not configured
+
+Set `GITHUB_TOKEN`, set `github_token` in the config, or pass
+`--token-stdin`. Retry with `--provider getfonts` if GitHub is not needed.
+
+### No fonts matched
+
+Try a different family name or remove `--weight` and `--format`. No download
+was started.
+
+### Download was rejected
+
+Moji reports whether it blocked HTTP, exceeded the redirect or size limit,
+received invalid font content, or found a destination collision. Rejected
+content remains in a temporary file only until cleanup; no completed font is
+placed at the destination.
+
+### Config could not be parsed
+
+Fix the YAML at the reported path or move the file aside to use defaults. Moji
+does not replace an existing config unless the new file was fully written and
+secured first.
+
+### Editor could not open
+
+Set `EDITOR` or edit the reported path directly. Moji reports whether it
+created the default config before trying the editor.

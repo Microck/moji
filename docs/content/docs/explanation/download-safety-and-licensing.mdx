@@ -1,0 +1,58 @@
+---
+title: Download safety and licensing
+description: What Moji validates, what it preserves on failure, and what remains the user's responsibility.
+---
+
+Finding a public font URL and safely placing a file on disk are different
+problems. Moji treats downloads as an untrusted boundary.
+
+## Transport controls
+
+HTTPS is required by default. Moji also checks every redirect so an HTTPS URL
+cannot silently downgrade to HTTP. `--allow-insecure` is an explicit exception
+for a source the user has already decided to trust.
+
+Downloads stop after five redirects and at 50 MiB. These limits prevent common
+redirect loops and unexpectedly large responses.
+
+## Content controls
+
+Moji reads the first four bytes and compares them with the selected format:
+
+| Format | Accepted signature |
+| --- | --- |
+| OTF | `OTTO` |
+| TTF | `00 01 00 00` or `OTTO` |
+| WOFF | `wOFF` |
+| WOFF2 | `wOF2` |
+
+HTML error pages and mislabeled files fail validation.
+
+## Filesystem controls
+
+Content is streamed into a temporary file in the destination directory. Only a
+complete, size-bounded, signature-valid file is renamed to its final name.
+
+The filename is reduced to its basename. Existing content is hashed with
+SHA-256:
+
+- identical bytes return the existing path;
+- identical bytes under another name are not duplicated; and
+- a different file at the target name is never overwritten.
+
+Error messages state when no completed file was saved, so a failed operation
+does not leave the user guessing about partial state.
+
+## Licensing boundary
+
+Moji searches public indexes; it does not grant rights to a font. A typeface
+design, font software, and the right to redistribute or embed a file can have
+different legal treatment.
+
+The `license` field is best-effort provenance. `unknown` means Moji could not
+establish a license. Before using a result:
+
+1. open the source;
+2. find the repository or publisher license;
+3. confirm that the intended desktop, print, web, application, or redistribution use is allowed; and
+4. obtain the font from the authorized publisher when provenance is unclear.

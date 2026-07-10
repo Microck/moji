@@ -1,0 +1,5 @@
+{
+  "title": "How-to guides",
+  "icon": "ListChecks",
+  "pages": ["search-and-filter", "github-authentication", "download-families", "automate-with-json", "manage-config-and-cache"]
+}
