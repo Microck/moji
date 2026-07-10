@@ -1,0 +1,5 @@
+{
+  "title": "Reference",
+  "icon": "BookOpen",
+  "pages": ["cli", "configuration", "providers", "errors-and-exit-codes"]
+}

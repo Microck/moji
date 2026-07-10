@@ -1,0 +1,47 @@
+---
+title: Ranking and font families
+description: Why Moji parses filenames and ranks groups before selecting downloads.
+---
+
+Font search results rarely include complete structured metadata. The filename
+often carries the most useful facts:
+
+```text
+ProximaNova-Bold.ttf
+SourceSans-SemiBoldItalic.woff2
+Inter[wght].ttf
+```
+
+Moji splits camel case, replaces filename separators, removes variable-font
+markers, and recognizes common weight and italic suffixes. This produces a
+canonical family name and tags without changing the original filename.
+
+## Score components
+
+The score combines:
+
+- format preference: OTF, then TTF, WOFF2, and WOFF;
+- the number of weights found for a family at one source;
+- a trust boost when a provider can establish trust;
+- a requested-weight match; and
+- a penalty for suspiciously small files.
+
+Ranking weights are configurable because a desktop design workflow and a web
+workflow may value formats differently.
+
+## Why family grouping matters
+
+Without grouping, an `entire family` request could mix unrelated uploads or
+select ten individually high-scoring bold files.
+
+Moji groups by normalized family and source. Family mode starts from the
+highest-ranked result, then selects matching family files from that same
+source. This keeps the set coherent and rewards sources that contain several
+weights.
+
+## Ranking is guidance, not proof
+
+A high score means a result matches the query and quality heuristics. It does
+not prove authorship, integrity beyond the validated file format, or a license
+grant. Source and license fields remain visible so the user can make that
+decision.

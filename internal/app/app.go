@@ -1,0 +1,175 @@
+package app
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"strings"
+
+	"github.com/microck/moji/internal/config"
+	"github.com/microck/moji/internal/rank"
+)
+
+var Version = "0.1.0"
+
+type App struct {
+	Stdin  io.Reader
+	Stdout io.Writer
+	Stderr io.Writer
+	Client *http.Client
+}
+
+type options struct {
+	formats, weight, providers, downloadDir                          string
+	max                                                              int
+	json, dryRun, verbose, debug, noCache, tokenStdin, allowInsecure bool
+}
+
+func (application App) Run(ctx context.Context, args []string) int {
+	application.setDefaults()
+	if len(args) == 0 || containsHelp(args) {
+		fmt.Fprint(application.Stdout, helpText)
+		return 0
+	}
+	if args[0] == "--version" {
+		fmt.Fprintln(application.Stdout, Version)
+		return 0
+	}
+	configPath, err := config.Path()
+	if err != nil {
+		return application.fail(err, 1)
+	}
+	current, err := config.Load(configPath)
+	if err != nil {
+		return application.fail(err, 1)
+	}
+	if args[0] == "config" {
+		return application.runConfig(current, configPath, args[1:])
+	}
+	if args[0] == "cache" {
+		return application.runCache(args[1:])
+	}
+
+	getMode := args[0] == "get"
+	if getMode {
+		args = args[1:]
+	}
+	query, parsed, err := parseOptions(args)
+	if err != nil {
+		return application.fail(err, 2)
+	}
+	if query == "" {
+		return application.fail(errors.New("font query is required; example: moji \"Inter\""), 2)
+	}
+	if err := validateProviderNames(parsed.providers); err != nil {
+		return application.fail(err, 2)
+	}
+	intent := rank.Intent{Query: query, Max: 1}
+	if getMode {
+		intent = rank.ParseIntent(query)
+		query = intent.Query
+		if parsed.weight == "" {
+			parsed.weight = intent.WantWeight
+		}
+		if parsed.formats == "" && intent.Format != "" {
+			parsed.formats = intent.Format
+		}
+	}
+	if parsed.dryRun && !getMode {
+		return application.fail(errors.New("--dry-run is only valid with moji get"), 2)
+	}
+	if parsed.tokenStdin {
+		token, readErr := io.ReadAll(io.LimitReader(application.Stdin, 4097))
+		if readErr != nil {
+			return application.fail(fmt.Errorf("read token from stdin: %w", readErr), 1)
+		}
+		if len(token) > 4096 {
+			return application.fail(errors.New("token from stdin exceeds 4096 bytes"), 2)
+		}
+		current.GitHubToken = strings.TrimSpace(string(token))
+	}
+	formats := current.DefaultFormats
+	if parsed.formats != "" {
+		formats, err = config.ParseFormats(parsed.formats)
+		if err != nil {
+			return application.fail(err, 2)
+		}
+	}
+	if parsed.downloadDir == "" {
+		parsed.downloadDir = current.DownloadDir
+	}
+	if parsed.max == 0 {
+		if getMode {
+			parsed.max = intent.Max
+		} else {
+			parsed.max = 10
+		}
+	}
+	if !getMode && !parsed.json && isTerminal(application.Stdin) && isTerminal(application.Stdout) {
+		return application.runInteractive(ctx, current, query, formats, parsed)
+	}
+	results, failures, err := application.search(ctx, current, query, formats, parsed)
+	if err != nil {
+		return application.fail(err, 1)
+	}
+	if parsed.weight != "" {
+		results = rank.FilterWeight(results, strings.ToLower(parsed.weight))
+	}
+	results = rank.Results(results, strings.ToLower(parsed.weight), current.Ranking)
+	if getMode && intent.WantFamily {
+		results = rank.SelectFamily(results, parsed.max)
+	}
+	if len(results) > parsed.max {
+		results = results[:parsed.max]
+	}
+	if parsed.verbose {
+		for _, failure := range failures {
+			fmt.Fprintln(application.Stderr, failure)
+		}
+	}
+	if getMode {
+		return application.runGet(ctx, results, parsed)
+	}
+	if parsed.json {
+		return application.writeJSON(results)
+	}
+	application.writeTable(results)
+	return 0
+}
+
+func containsHelp(args []string) bool {
+	for _, argument := range args {
+		if argument == "--help" || argument == "-h" || argument == "help" {
+			return true
+		}
+	}
+	return false
+}
+
+func isTerminal(stream any) bool {
+	file, ok := stream.(*os.File)
+	if !ok {
+		return false
+	}
+	info, err := file.Stat()
+	return err == nil && info.Mode()&os.ModeCharDevice != 0
+}
+
+func colorEnabled() bool {
+	return os.Getenv("NO_COLOR") == "" && os.Getenv("TERM") != "dumb"
+}
+
+func (application *App) setDefaults() {
+	if application.Stdin == nil {
+		application.Stdin = os.Stdin
+	}
+	if application.Stdout == nil {
+		application.Stdout = os.Stdout
+	}
+	if application.Stderr == nil {
+		application.Stderr = os.Stderr
+	}
+}

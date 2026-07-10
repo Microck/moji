@@ -1,0 +1,10 @@
+.residue/
+/moji
+/node_modules/
+/docs/node_modules/
+/binaries/
+/docs/.next/
+/docs/.source/
+/docs/next-env.d.ts
+/docs/tsconfig.tsbuildinfo
+/*.tgz

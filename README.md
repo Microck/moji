@@ -1,35 +1,160 @@
-# moji
+<div align="center">
 
-A cozy terminal tool to find and download fonts by name. Modeled after [tork](https://github.com/melqtx/tork) — same architecture (provider → aggregator → rank → TUI), adapted for font search instead of torrents.
-
-```
- 文字
-
- moji — find fonts from the terminal
+```text
+文字  moji
 ```
 
-**Language:** Go (Bubble Tea TUI)
+<h1>moji</h1>
 
-**How it works:** Query public sources (GitHub Code Search API, font aggregators) concurrently, rank results by format/weight/family completeness, pick and download.
+<p>find and safely download fonts without leaving the terminal.</p>
 
-**Status:** Design phase. See the [CLI design doc](research/cli-design.md) for full architecture.
+<p>
+  <img src="https://img.shields.io/npm/v/@microck/moji?style=flat-square&color=000000" alt="npm version badge">
+  <img src="https://img.shields.io/npm/dt/@microck/moji?style=flat-square&color=000000" alt="npm total downloads badge">
+  <img src="https://img.shields.io/badge/platform-linux%20%7C%20macos%20%7C%20windows-000000?style=flat-square" alt="platform badge">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-000000?style=flat-square" alt="MIT license badge"></a>
+</p>
 
-## Architecture (summary)
+</div>
 
+`moji` searches multiple font sources, ranks files by family and filename, and
+downloads the match you actually asked for. use the Bubble Tea interface when
+working interactively, a stable table in pipelines, or JSON when another tool
+needs to consume the results.
+
+the npm package includes native binaries for linux, macOS, and windows on x64
+and arm64. installing Go is not required.
+
+## quick start
+
+install with the package manager you already use:
+
+```bash
+npm install --global @microck/moji
+pnpm add --global @microck/moji
+bun add --global @microck/moji
 ```
-                    ┌→ GitHub Code Search ─┐
-query → aggregator ─┼→ getthefont.com    ──┼→ rank → TUI results → download
-                    ├→ getfonts.cc        ─┤
-                    └→ web search         ─┘
+
+search for a family:
+
+```bash
+moji "Inter"
 ```
 
-Each source is a Provider implementing one interface. The aggregator fans out concurrently, streams results back live. Rank normalizes filenames and scores by format preference, family size, source trust, and weight match.
+when stdin and stdout are terminals, `moji` opens the interactive result list.
+redirect or pipe the command to get a stable table instead.
 
-## Quick Start
+```bash
+moji "Inter" --format otf,ttf
+moji "Inter" --format woff2 --json
+```
 
-Not yet implemented. Planned:
+download the best match, preview the choice first, or ask for the whole family:
+
+```bash
+moji get "Inter bold" --dry-run
+moji get "Inter bold"
+moji get "Inter entire family" --download-dir ~/Downloads/moji
 ```
-moji "Proxima Nova"                          # interactive TUI
-moji "Proxima Nova" --download               # auto-download best match
-moji get "proxima nova bold" --dry-run       # plan only, no interaction
+
+## providers
+
+the default GetFonts provider works without an account. GitHub Code Search
+requires authentication, so `moji` activates it only when `GITHUB_TOKEN` or
+`github_token` is configured.
+
+```bash
+export GITHUB_TOKEN=github_pat_example
+moji "Inter" --provider github
 ```
+
+do not pass tokens as command-line flags. use `--token-stdin` when a token only
+needs to exist for one invocation.
+
+SearXNG search is also available, but it stays disabled until both the provider
+and an instance URL are configured.
+
+## commands
+
+| command | purpose |
+| --- | --- |
+| `moji <query>` | search interactively or print a table when piped |
+| `moji get <query>` | rank results and download the best match |
+| `moji config` | create the default config when needed and open `$EDITOR` |
+| `moji config show` | print the current config with its token redacted |
+| `moji cache clear` | remove cached provider results |
+
+run `moji --help` for the complete flag and example reference.
+
+## download safety
+
+downloads use HTTPS by default and stop at 50 MiB. before the final file appears,
+`moji` validates its font magic bytes, sanitizes its filename, writes to a
+temporary path, and renames it atomically. SHA-256 hashes prevent duplicate
+files from being saved twice.
+
+search results include source and best-effort license metadata. an `unknown`
+license is not permission to use or redistribute a font. check the font's
+license before shipping it.
+
+## configuration
+
+the default config lives at `~/.moji/config.yaml` and is written with mode
+`0600`. set `MOJI_CONFIG` to use a different file.
+
+```yaml
+download_dir: ~/Downloads/moji
+search_timeout_seconds: 15
+cache_ttl_seconds: 3600
+default_formats: [otf, ttf, woff2]
+
+providers:
+  github:
+    enabled: true
+  getfonts:
+    enabled: true
+  websearch:
+    enabled: false
+    instance: ""
+```
+
+## documentation
+
+the Fumadocs site covers the complete workflow:
+
+- [start here](docs/content/docs/index.mdx)
+- [tutorial](docs/content/docs/tutorial.mdx)
+- [CLI reference](docs/content/docs/reference/cli.mdx)
+- [configuration reference](docs/content/docs/reference/configuration.mdx)
+- [providers](docs/content/docs/reference/providers.mdx)
+- [errors and exit codes](docs/content/docs/reference/errors-and-exit-codes.mdx)
+- [architecture](docs/content/docs/explanation/architecture.mdx)
+
+the original product and architecture research remains in
+[`research/cli-design.md`](research/cli-design.md).
+
+## development
+
+verify the Go CLI and production documentation build together:
+
+```bash
+npm install
+npm run verify
+```
+
+run the parts independently when working on one side of the repository:
+
+```bash
+make verify
+npm run docs:check
+npm run docs:build
+npm run docs:dev
+```
+
+the end-to-end suite builds the real binary, searches a controlled HTTP
+provider, downloads a valid fixture font, checks the file on disk, and exercises
+cache clearing.
+
+## license
+
+[MIT](LICENSE)
