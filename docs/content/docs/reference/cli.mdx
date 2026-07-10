@@ -1,0 +1,80 @@
+---
+title: CLI reference
+description: Commands, flags, output modes, and defaults.
+---
+
+## Command grammar
+
+```text
+moji <query> [flags]
+moji get <query> [flags]
+moji config [show]
+moji cache clear
+moji --version
+moji --help
+```
+
+### `moji <query>`
+
+Search enabled providers. When stdin and stdout are terminals, open the live
+TUI. Otherwise print a table. `--json` always prints structured output.
+
+### `moji get <query>`
+
+Search, rank, select, and download. A trailing weight is parsed from the query.
+The phrases `entire family` and `all weights` select multiple files from the
+best family source.
+
+### `moji config`
+
+Create the default config when missing, then open it with `$EDITOR`.
+
+### `moji config show`
+
+Print effective configuration as JSON. The GitHub token is redacted.
+
+### `moji cache clear`
+
+Delete cached provider responses and recreate the cache directory.
+
+## Flags
+
+| Flag | Short | Default | Meaning |
+| --- | --- | --- | --- |
+| `--format <list>` | `-f` | config default | Comma-separated `otf`, `ttf`, `woff`, or `woff2` |
+| `--weight <name>` | `-w` | any | Keep only a normalized font weight |
+| `--max <count>` | `-n` | 10 search / 1 get | Maximum visible results or downloads |
+| `--provider <list>` | | all enabled | Comma-separated `github`, `getfonts`, or configured `websearch` |
+| `--json` | | off | Print machine-readable JSON |
+| `--dry-run` | | off | Preview a `get` selection without downloading |
+| `--download-dir <path>` | `-d` | `~/Downloads/moji` | Download destination |
+| `--verbose` | `-v` | off | Print provider failures, counts, and elapsed time |
+| `--debug` | | off | Print provider state and retry details |
+| `--no-cache` | | off | Bypass cached search results |
+| `--token-stdin` | | off | Read a GitHub token from standard input |
+| `--allow-insecure` | | off | Allow HTTP for a source you explicitly trust |
+| `--help` | `-h` | | Show help and ignore other arguments |
+| `--version` | | | Print `0.1.0` |
+
+Flags may appear before or after query words. Values can use a separate
+argument or `--flag=value`.
+
+## TUI keys
+
+| Key | Action |
+| --- | --- |
+| `up` / `k` | Select previous result |
+| `down` / `j` | Select next result |
+| `enter` | Open result details |
+| `D` | Download selected result |
+| `/` | Filter loaded results |
+| `f` | Cycle all, OTF, TTF, and WOFF2 |
+| `tab` / `o` | Cycle score, format, and size sorting |
+| `esc` | Close details or exit |
+| `q` / `Ctrl-C` | Exit |
+
+## Standard streams
+
+- Search results and successful command output use stdout.
+- Diagnostics, verbose status, debug status, and errors use stderr.
+- Color is disabled when `NO_COLOR` is set or `TERM=dumb`.

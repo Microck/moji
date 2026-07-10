@@ -1,0 +1,76 @@
+---
+title: Configuration reference
+description: YAML fields, paths, environment variables, and precedence.
+---
+
+## Paths
+
+The default configuration path is `~/.moji/config.yaml`. Override it with
+`MOJI_CONFIG`.
+
+The default cache path is `$XDG_CACHE_HOME/moji` when `XDG_CACHE_HOME` is set,
+or `~/.cache/moji` otherwise.
+
+## Complete example
+
+```yaml
+download_dir: ~/Downloads/moji
+github_token: ""
+search_timeout_seconds: 15
+cache_ttl_seconds: 3600
+default_formats: [otf, ttf, woff2]
+
+ranking:
+  format: 3.0
+  family_size: 2.0
+  trusted: 1.5
+  size_penalty: 0.5
+  weight_bonus: 2.0
+
+rate_limits:
+  github:
+    timeout_seconds: 15
+    retries: 2
+  getfonts:
+    timeout_seconds: 15
+    retries: 1
+  websearch:
+    timeout_seconds: 20
+    retries: 0
+
+providers:
+  github:
+    enabled: true
+  getfonts:
+    enabled: true
+  websearch:
+    enabled: false
+    instance: ""
+```
+
+## Fields
+
+| Field | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `download_dir` | string | `~/Downloads/moji` | Destination for `get` and TUI downloads |
+| `github_token` | string | empty | GitHub Code Search token |
+| `search_timeout_seconds` | positive integer | 15 | Overall search deadline |
+| `cache_ttl_seconds` | non-negative integer | 3600 | Cache lifetime; `0` disables cache hits |
+| `default_formats` | string array | OTF, TTF, WOFF2 | Formats used without `--format` |
+| `ranking` | mapping | shown above | Relative score weights |
+| `rate_limits` | mapping | shown above | Per-provider timeout and retry count |
+| `providers` | mapping | shown above | Provider enablement and optional instance |
+
+## Environment variables
+
+| Variable | Meaning |
+| --- | --- |
+| `GITHUB_TOKEN` | GitHub token; takes precedence over the config token |
+| `MOJI_CONFIG` | Alternate config path |
+| `XDG_CACHE_HOME` | Alternate cache root |
+| `EDITOR` | Program used by `moji config` |
+| `NO_COLOR` | Disable styled terminal output |
+| `TERM=dumb` | Disable styled terminal output |
+
+Per-invocation flags override general config defaults. Provider availability
+still depends on required credentials and instance settings.

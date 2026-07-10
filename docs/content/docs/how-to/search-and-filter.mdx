@@ -1,0 +1,66 @@
+---
+title: Search and filter results
+description: Narrow a font search by format, weight, provider, and result count.
+---
+
+Use flags when the font name alone returns more files than you need.
+
+## Select formats
+
+Pass one or more comma-separated formats:
+
+```sh
+moji "Source Sans" --format otf
+moji "Source Sans" --format otf,ttf
+moji "Source Sans" --format woff2
+```
+
+Supported values are `otf`, `ttf`, `woff`, and `woff2`. Moji rejects other
+values before starting a provider request.
+
+## Select a weight
+
+Use `--weight` or put a recognized weight at the end of a `get` query:
+
+```sh
+moji "Source Sans" --weight semibold
+moji get "Source Sans semibold" --dry-run
+```
+
+Moji normalizes common filename variants such as `SemiBold`, `DemiBold`,
+`ExtraBold`, `Oblique`, and `Italic`.
+
+## Restrict providers
+
+Use a comma-separated provider list:
+
+```sh
+moji "Inter" --provider getfonts
+moji "Inter" --provider github,getfonts
+```
+
+GitHub search appears only when a token is configured. SearXNG web search
+appears only when it is enabled with an instance URL.
+
+## Limit output
+
+```sh
+moji "Inter" --max 5
+moji get "Inter entire family" --max 8 --dry-run
+```
+
+For an ordinary `get` request, the default maximum is one. A family request
+defaults to ten. Interactive searches default to ten visible results.
+
+## Combine filters
+
+```sh
+moji get "Source Sans bold" \
+  --format otf,ttf \
+  --provider getfonts \
+  --max 2 \
+  --dry-run
+```
+
+Start with `--dry-run`. Remove it only after the selected files and sources
+look correct.

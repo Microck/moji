@@ -1,0 +1,55 @@
+---
+title: Enable GitHub search
+description: Configure the token required by the GitHub Code Search provider.
+---
+
+GitHub Code Search requires authentication. Moji does not register the GitHub
+provider until a token or custom endpoint is available.
+
+## Use an environment variable
+
+```sh
+export GITHUB_TOKEN=github_pat_your_token
+moji "Inter" --provider github
+```
+
+The environment variable takes precedence over `github_token` in the config
+file.
+
+## Read a token from standard input
+
+Use `--token-stdin` when a secret manager or another process supplies the token:
+
+```sh
+printf '%s' "$TOKEN_FROM_SECRET_MANAGER" |
+  moji "Inter" --provider github --token-stdin --json
+```
+
+Moji intentionally has no inline `--token` flag because command-line arguments
+can be recorded in shell history and process listings.
+
+## Store a token in the config file
+
+Open the config:
+
+```sh
+moji config
+```
+
+Set:
+
+```yaml
+github_token: github_pat_your_token
+```
+
+Moji creates the config with mode `0600`. `moji config show` always redacts the
+stored value.
+
+## Recover from authentication failures
+
+If Moji reports that GitHub search is not configured:
+
+1. confirm that `GITHUB_TOKEN` is exported in the same shell;
+2. run `moji config show` and confirm that `GitHubToken` is `[redacted]`;
+3. confirm that the token can read public repositories; and
+4. retry with `--provider getfonts` to keep working without GitHub.

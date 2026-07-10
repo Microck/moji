@@ -1,0 +1,50 @@
+---
+title: Moji documentation
+description: Find, inspect, and safely download fonts from the terminal.
+icon: Search
+---
+
+Moji is a terminal font finder for people and scripts. It searches enabled
+providers concurrently, normalizes font filenames, ranks likely matches, and
+downloads through a validation pipeline.
+
+<Cards>
+  <Card title="Install and find a font" href="/docs/tutorial" description="Start with the guided tutorial." />
+  <Card title="Solve a specific task" href="/docs/how-to/search-and-filter" description="Use focused how-to guides." />
+  <Card title="Look up a command" href="/docs/reference/cli" description="Read the complete CLI reference." />
+  <Card title="Understand the design" href="/docs/explanation/architecture" description="Learn how providers, ranking, and downloads fit together." />
+</Cards>
+
+## Install
+
+Choose the package manager you already use:
+
+```sh
+npm install --global @microck/moji
+pnpm add --global @microck/moji
+bun add --global @microck/moji
+```
+
+All three commands install the same npm-registry package. It includes binaries
+for Linux, macOS, and Windows on x64 and arm64.
+
+## Two ways to work
+
+Run a search in a terminal to open the live interface:
+
+```sh
+moji "Inter"
+```
+
+Use `get` for a non-interactive search, selection, and download:
+
+```sh
+moji get "Inter bold"
+```
+
+Use `--dry-run` before downloading and `--json` when another program will read
+the result.
+
+> [!IMPORTANT]
+> A public URL is not proof that a font is licensed for your use. Treat
+> `license: unknown` as a prompt to verify the license with the source.

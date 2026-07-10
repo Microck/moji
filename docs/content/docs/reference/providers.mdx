@@ -1,0 +1,48 @@
+---
+title: Provider reference
+description: Availability, authentication, trust, and fallback behavior.
+---
+
+## GetFonts
+
+- Name: `getfonts`
+- Default: enabled
+- Authentication: none
+- Endpoint: the current GetFonts JSON search API
+- Result trust: untrusted
+- License: `unknown` unless the source supplies a hint
+
+GetFonts is the zero-configuration default.
+
+## GitHub
+
+- Name: `github`
+- Default: enabled when configured
+- Authentication: required
+- Token sources: `GITHUB_TOKEN`, config, or `--token-stdin`
+- Queries: one GitHub Code Search request per selected format
+- Result trust: untrusted
+
+GitHub is not added to the active provider set without a token or custom
+endpoint. This prevents predictable unauthenticated failures.
+
+## Web search
+
+- Name: `websearch`
+- Default: disabled
+- Engine: SearXNG JSON search
+- Configuration: `providers.websearch.instance`
+- Result policy: only direct links with a selected font extension
+- Result trust: untrusted
+
+Web search is registered only when enabled and given an instance URL.
+
+## Partial failure
+
+Providers run independently. Moji keeps results from healthy providers when
+another provider fails. It retries bounded transient failures, respects a
+provider `Retry-After` value, and reports searching, throttled, failed, and
+done states to the TUI.
+
+If every selected provider fails, Moji exits with an actionable summary and
+does not begin a download.
