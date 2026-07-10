@@ -109,3 +109,25 @@ func TestConfigWithoutEditorProvidesDirectPath(t *testing.T) {
 		t.Fatalf("code=%d error=%q", code, stderr.String())
 	}
 }
+
+func TestParseEditorCommandPreservesArgumentsAndQuotedPaths(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		value string
+		want  []string
+	}{
+		{"code --wait", []string{"code", "--wait"}},
+		{`"/Applications/Visual Studio Code.app/Contents/MacOS/Electron" --wait`, []string{"/Applications/Visual Studio Code.app/Contents/MacOS/Electron", "--wait"}},
+		{`"C:\Program Files\Editor\editor.exe" --wait`, []string{`C:\Program Files\Editor\editor.exe`, "--wait"}},
+	}
+	for _, test := range tests {
+		got, err := parseEditorCommand(test.value)
+		if err != nil {
+			t.Fatalf("parseEditorCommand(%q): %v", test.value, err)
+		}
+		if fmt.Sprint(got) != fmt.Sprint(test.want) {
+			t.Errorf("parseEditorCommand(%q) = %q, want %q", test.value, got, test.want)
+		}
+	}
+}
