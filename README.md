@@ -67,6 +67,9 @@ the `websearch` provider automatically uses
 `kagi auth` once. Ordinary web pages are ignored. direct CSS font URLs and
 bounded ZIP or TAR archive members can become results. configured source
 plugins pass through the same HTTPS, format, and download validation boundary.
+Direct binary responses with missing or misleading extensions can also be
+recognized as ZIP, TAR, or compressed TAR archives by signature; webpages and
+interactive download flows remain excluded.
 
 ```bash
 export GITHUB_TOKEN=github_pat_example
@@ -98,6 +101,11 @@ downloads use HTTPS by default and stop at 50 MiB. before the final file appears
 `moji` validates its font magic bytes, sanitizes its filename, writes to a
 temporary path, and renames it atomically. SHA-256 hashes prevent duplicate
 files from being saved twice.
+
+If the first ranked link returns invalid font bytes, `moji get` remembers that
+URL and tries the next candidate. Whole-family downloads validate one coherent
+same-source group in staging, so a broken member cannot leave a partial family
+or mix sources.
 
 search results include source and best-effort license metadata. an `unknown`
 license is not permission to use or redistribute a font. check the font's
@@ -159,6 +167,11 @@ npm run docs:check
 npm run docs:build
 npm run docs:dev
 ```
+
+Before a release, `npm run release` rebuilds and verifies the exact npm archive
+without publishing it. The operator-only `npm run release:publish` runs the
+same gate before npm publication, the annotated tag, and the GitHub release.
+See the [release runbook](docs/release-runbook.md).
 
 the end-to-end suite builds the real binary, searches a controlled HTTP
 provider, downloads a valid fixture font, checks the file on disk, and exercises

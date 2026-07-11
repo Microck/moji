@@ -38,6 +38,11 @@ received invalid font content, or found a destination collision. Rejected
 content remains in a temporary file only until cleanup; no completed font is
 placed at the destination.
 
+For a single-font request, Moji continues through the ranked candidates and
+reports an aggregate error only if it cannot reach the requested success count.
+For an entire-family request, each same-source group is staged and either
+completed as a unit or discarded before the next group is tried.
+
 ### Config could not be parsed
 
 Fix the YAML at the reported path or move the file aside to use defaults. Moji

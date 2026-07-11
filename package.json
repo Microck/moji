@@ -34,6 +34,10 @@
     "docs:check": "npm run check --workspace @microck/moji-docs",
     "docs:dev": "npm run dev --workspace @microck/moji-docs",
     "prepack": "npm run build:binaries",
+    "release": "tsx scripts/release.ts --verify",
+    "release:publish": "tsx scripts/release.ts --publish",
+    "test:release": "node --import tsx --test scripts/release.test.ts",
+    "corpus:verify": "tsx scripts/font-corpus.ts",
     "verify": "go vet ./cmd/... ./internal/... ./e2e/... && go test ./cmd/... ./internal/... ./e2e/... && npm run docs:check && npm run docs:build"
   },
   "devDependencies": {

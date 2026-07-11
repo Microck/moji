@@ -67,6 +67,7 @@ type Result struct {
 	Variable      bool    `json:"variable,omitempty" yaml:"variable,omitempty"`
 	ArchiveFormat string  `json:"archive_format,omitempty" yaml:"archive_format,omitempty"`
 	ArchiveMember string  `json:"archive_member,omitempty" yaml:"archive_member,omitempty"`
+	FamilyGroup   string  `json:"-" yaml:"-"`
 	Score         float64 `json:"score,omitempty" yaml:"score,omitempty"`
 }
 

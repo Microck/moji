@@ -62,12 +62,20 @@ Kagi authentication is managed by `kagi-cli`; run `kagi auth`. Its backend
 runs one structured search and converts GitHub blob links to HTTPS raw-file
 URLs. Ordinary pages are discarded.
 
-The SearXNG backend runs six bounded queries concurrently: quoted TTF and OTF
+The SearXNG backend runs nine bounded queries concurrently: quoted TTF and OTF
 filenames, a VK-scoped query, an index-of query covering configured formats,
-GitHub title query, and CSS `@font-face` query. Direct ZIP, TAR, and compressed
-TAR results are inspected within fixed entry and expanded-size limits. Both
-backends run concurrently and merge by direct URL plus archive member. A
-failure in one backend does not discard results from the other.
+GitHub title query, CSS `@font-face` query, and three grouped queries across
+font indexes such as OnlineWebFonts, wFonts, BeFonts, CufonFonts, FontsFree,
+DFonts, FFonts, and FontBolt. Kagi receives the same grouped index clauses in
+its bounded query.
+
+Only direct font files are emitted. Direct ZIP, TAR, and compressed TAR results
+are inspected within fixed entry and expanded-size limits. Extensionless or
+mislabeled responses are considered only when the bytes match a supported
+archive signature. Explicit HTML, text, JSON, and XML response types are
+rejected before reading the body. Download forms and gated flows remain
+excluded. Both backends run concurrently and merge by direct URL plus archive
+member. A failure in one backend does not discard results from the other.
 
 ## Source plugins
 

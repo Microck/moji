@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"runtime"
 	"strings"
 
 	"github.com/microck/moji/internal/config"
@@ -15,12 +16,19 @@ import (
 )
 
 var Version = "0.2.1"
+var ReleaseMarker = "moji-release-version:development:moji-marker-end"
+
+// allowPrivateBuild is set only on the subprocess binary built by the E2E
+// test. Release builds leave it empty, and no runtime input can change it.
+var allowPrivateBuild string
 
 type App struct {
 	Stdin  io.Reader
 	Stdout io.Writer
 	Stderr io.Writer
 	Client *http.Client
+
+	allowPrivate bool
 }
 
 type options struct {
@@ -30,6 +38,8 @@ type options struct {
 }
 
 func (application App) Run(ctx context.Context, args []string) int {
+	runtime.KeepAlive(ReleaseMarker)
+	application.allowPrivate = application.allowPrivate || allowPrivateBuild == "e2e"
 	application.setDefaults()
 	if containsHelp(args) {
 		fmt.Fprint(application.Stdout, helpText)
@@ -127,10 +137,7 @@ func (application App) Run(ctx context.Context, args []string) int {
 		results = rank.FilterWeight(results, strings.ToLower(parsed.weight))
 	}
 	results = rank.Results(results, query, strings.ToLower(parsed.weight), current.Ranking)
-	if getMode && intent.WantFamily {
-		results = rank.SelectFamily(results, parsed.max)
-	}
-	if len(results) > parsed.max {
+	if !getMode && len(results) > parsed.max {
 		results = results[:parsed.max]
 	}
 	if parsed.verbose {
@@ -139,7 +146,7 @@ func (application App) Run(ctx context.Context, args []string) int {
 		}
 	}
 	if getMode {
-		return application.runGet(ctx, results, parsed)
+		return application.runGet(ctx, results, parsed, intent.WantFamily)
 	}
 	if parsed.json {
 		return application.writeJSON(results)

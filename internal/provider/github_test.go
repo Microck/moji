@@ -255,8 +255,8 @@ func TestWebSearchOnlyReturnsDirectFontLinks(t *testing.T) {
 	if len(out) != 1 || (<-out).Result.Filename != "Example.woff2" {
 		t.Fatal("direct font result was not extracted")
 	}
-	if requests.Load() != 6 {
-		t.Fatalf("requests = %d, want 6", requests.Load())
+	if requests.Load() != 9 {
+		t.Fatalf("requests = %d, want 9", requests.Load())
 	}
 }
 
@@ -287,7 +287,7 @@ func TestWebSearchPreservesEveryArchiveMember(t *testing.T) {
 	defer server.Close()
 
 	out := make(chan Event, 12)
-	if err := (WebSearch{Client: server.Client(), Instance: server.URL}).Search(context.Background(), "Example", []string{"otf"}, out); err != nil {
+	if err := (WebSearch{Client: server.Client(), Instance: server.URL}).Search(localDiscoveryContext(), "Example", []string{"otf"}, out); err != nil {
 		t.Fatal(err)
 	}
 	close(out)
@@ -306,6 +306,9 @@ func TestWebSearchQueriesCoverDorkVariants(t *testing.T) {
 		`"Proxima Nova" "index of" .otf OR .ttf OR .dfont OR .zip OR .tar.gz`,
 		`intitle:"Proxima Nova" github`,
 		`"Proxima Nova" "@font-face" filetype:css`,
+		`("Proxima Nova.ttf" OR "Proxima Nova.otf") (site:onlinewebfonts.com OR site:wfonts.com OR site:befonts.com OR site:cufonfonts.com)`,
+		`("Proxima Nova.ttf" OR "Proxima Nova.otf") (site:freefontsfamily.org OR site:fontsfree.net OR site:dfonts.org OR site:font.download)`,
+		`("Proxima Nova.ttf" OR "Proxima Nova.otf") (site:ffonts.net OR site:dafontfree.co OR site:fontshub.pro OR site:fontbolt.com)`,
 	}
 	if len(queries) != len(want) {
 		t.Fatalf("queries = %#v", queries)
