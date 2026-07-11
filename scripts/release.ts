@@ -39,18 +39,10 @@ export function validateTargets(directories: readonly string[]): void {
   }
 }
 
-// Go stores string constants as printable byte runs. Requiring a whole run avoids
-// accepting dependency versions such as "module-v0.2.1" as the app version.
-export function binaryContainsExactVersion(binary: Buffer, version: string): boolean {
-  let start = 0;
-  for (let index = 0; index <= binary.length; index += 1) {
-    const byte = binary[index];
-    const printable = byte !== undefined && byte >= 0x20 && byte <= 0x7e;
-    if (printable) continue;
-    if (index > start && binary.toString('ascii', start, index) === version) return true;
-    start = index + 1;
-  }
-  return false;
+// The unique marker avoids false matches from dependency versions while still
+// working when Go concatenates adjacent strings in the binary's read-only data.
+export function binaryContainsVersionMarker(binary: Buffer, version: string): boolean {
+	return binary.includes(Buffer.from(`moji-release-version:${version}:moji-marker-end`, 'ascii'));
 }
 
 export function parseBuildMetadata(output: string): BuildMetadata {
@@ -163,7 +155,7 @@ async function verifyArchive(
   for (const target of targets) {
     const binaryPath = join(binaryRoot, target.directory, target.executable);
     const binary = await readFile(binaryPath);
-    if (!binaryContainsExactVersion(binary, expected.version)) {
+    if (!binaryContainsVersionMarker(binary, expected.version)) {
       throw new Error(`${target.directory} binary does not contain exact app version ${expected.version}`);
     }
 

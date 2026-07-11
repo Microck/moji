@@ -3,7 +3,7 @@ import { test } from 'node:test';
 
 import {
   archiveIntegrity,
-  binaryContainsExactVersion,
+  binaryContainsVersionMarker,
 	isMissingReleaseError,
   parseBuildMetadata,
 	parseRemoteAnnotatedTag,
@@ -32,11 +32,14 @@ test('requires the complete six-target release matrix', () => {
   );
 });
 
-test('finds only an exact printable embedded version', () => {
-  const binary = Buffer.from(['prefix', 'dependency-v0.2.1', 'v0.2.1', '0.2.1', 'suffix'].join('\0'));
+test('finds the unique version marker inside concatenated Go string data', () => {
+  const binary = Buffer.from('prefixtime0.2.1falsemoji-release-version:0.2.1:moji-marker-endsuffix');
 
-  assert.equal(binaryContainsExactVersion(binary, '0.2.1'), true);
-  assert.equal(binaryContainsExactVersion(binary, '0.2.2'), false);
+  assert.equal(binaryContainsVersionMarker(binary, '0.2.1'), true);
+  assert.equal(binaryContainsVersionMarker(binary, '0.2.2'), false);
+	assert.equal(binaryContainsVersionMarker(Buffer.from('dependency-v0.2.1'), '0.2.1'), false);
+	assert.equal(binaryContainsVersionMarker(Buffer.from('moji-release-version:0.2.10:moji-marker-end'), '0.2.1'), false);
+	assert.equal(binaryContainsVersionMarker(Buffer.from('moji-release-version:0.2.1-beta:moji-marker-end'), '0.2.1'), false);
 });
 
 test('reads the target architecture from Go build metadata', () => {

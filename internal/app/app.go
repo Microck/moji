@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"runtime"
 	"strings"
 
 	"github.com/microck/moji/internal/config"
@@ -15,6 +16,7 @@ import (
 )
 
 var Version = "0.2.1"
+var ReleaseMarker = "moji-release-version:development:moji-marker-end"
 
 // allowPrivateBuild is set only on the subprocess binary built by the E2E
 // test. Release builds leave it empty, and no runtime input can change it.
@@ -36,6 +38,7 @@ type options struct {
 }
 
 func (application App) Run(ctx context.Context, args []string) int {
+	runtime.KeepAlive(ReleaseMarker)
 	application.allowPrivate = application.allowPrivate || allowPrivateBuild == "e2e"
 	application.setDefaults()
 	if containsHelp(args) {
