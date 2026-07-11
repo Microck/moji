@@ -22,6 +22,7 @@ func TestParseFilename(t *testing.T) {
 		{"Proxima-Nova-Regular.otf", "proxima nova", "regular", "otf", false, false},
 		{"HelveticaNeueLTStd-Light.otf", "helvetica neue lt std", "light", "otf", false, false},
 		{"AvenirNextCondensed-Bold.ttf", "avenir next condensed", "bold", "ttf", false, false},
+		{"GaramondPremrPro-Bd.ttf", "garamond premier pro", "bold", "ttf", false, false},
 		{"FF-Meta-Pro-Normal-Italic.otf", "ff meta pro", "regular", "otf", true, false},
 		{"ExampleSC-Bd.pfb", "example", "bold", "pfb", false, false},
 		{"SourceSans-SemiBoldItalic.woff2", "source sans", "semibold", "woff2", true, false},
