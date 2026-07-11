@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/microck/moji/internal/archivefont"
+	"github.com/microck/moji/internal/safehttp"
 )
 
 const maxDiscoveryContainerSize int64 = 50 << 20
@@ -21,6 +22,10 @@ const maxDiscoveryContainerSize int64 = 50 << 20
 const maxDiscoveryStylesheetSize int64 = 2 << 20
 
 var cssSource = regexp.MustCompile(`(?i)url\(\s*['"]?([^'")\s]+)['"]?\s*\)\s*(?:format\(\s*['"]?([a-z0-9-]+)['"]?\s*\))?`)
+
+// privateDiscoveryContextKey lets package tests reach local TLS servers. No
+// production caller can opt out of the public-address check through the API.
+type privateDiscoveryContextKey struct{}
 
 func resolveDiscoveredURL(ctx context.Context, client *http.Client, rawURL, query string, allowed map[string]bool) ([]Result, error) {
 	parsed, err := url.Parse(rawURL)
@@ -75,9 +80,12 @@ func resolveDiscoveredURL(ctx context.Context, client *http.Client, rawURL, quer
 			return nil, nil
 		}
 	} else {
-		content, err = fetchDiscoveryContent(ctx, client, rawURL, maxDiscoveryContainerSize)
+		content, _, err = fetchDiscoveryContentWithType(ctx, client, rawURL, maxDiscoveryContainerSize, true)
 		if err != nil {
 			return nil, err
+		}
+		if content == nil {
+			return nil, nil
 		}
 	}
 	members, err := archivefont.Inspect(content, archiveFormat, allowed, archivefont.DefaultLimits())
@@ -127,10 +135,8 @@ func fetchDiscoveryContent(ctx context.Context, client *http.Client, rawURL stri
 }
 
 func fetchDiscoveryContentWithType(ctx context.Context, client *http.Client, rawURL string, maximum int64, requireBinary bool) ([]byte, string, error) {
-	if client == nil {
-		client = &http.Client{}
-	}
-	clientCopy := *client
+	allowPrivate, _ := ctx.Value(privateDiscoveryContextKey{}).(bool)
+	clientCopy := safehttp.Constrain(client, allowPrivate)
 	originalRedirect := clientCopy.CheckRedirect
 	clientCopy.CheckRedirect = func(request *http.Request, via []*http.Request) error {
 		if request.URL.Scheme != "https" {
@@ -160,7 +166,7 @@ func fetchDiscoveryContentWithType(ctx context.Context, client *http.Client, raw
 		return nil, "", errors.New("discovery response exceeds the size limit")
 	}
 	contentType := response.Header.Get("Content-Type")
-	if requireBinary && !directBinaryContentType(contentType) {
+	if requireBinary && pageContentType(contentType) {
 		return nil, contentType, nil
 	}
 	content, err := io.ReadAll(io.LimitReader(response.Body, maximum+1))
@@ -173,13 +179,20 @@ func fetchDiscoveryContentWithType(ctx context.Context, client *http.Client, raw
 	return content, contentType, nil
 }
 
-func directBinaryContentType(value string) bool {
+func pageContentType(value string) bool {
+	if strings.TrimSpace(value) == "" {
+		return false
+	}
 	mediaType, _, err := mime.ParseMediaType(value)
 	if err != nil {
 		return false
 	}
-	switch strings.ToLower(mediaType) {
-	case "application/octet-stream", "application/zip", "application/x-zip-compressed", "application/x-tar", "application/gzip", "application/x-gzip":
+	mediaType = strings.ToLower(mediaType)
+	if strings.HasPrefix(mediaType, "text/") {
+		return true
+	}
+	switch mediaType {
+	case "application/json", "application/ld+json", "application/xhtml+xml", "application/xml":
 		return true
 	default:
 		return false

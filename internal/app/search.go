@@ -150,7 +150,7 @@ func (application App) runHome(ctx context.Context, current config.Config, forma
 }
 
 func (application App) interactiveDownloader(ctx context.Context, parsed options) tui.DownloadFunc {
-	downloader := download.Downloader{Client: application.Client, AllowInsecure: parsed.allowInsecure}
+	downloader := download.Downloader{Client: application.Client, AllowInsecure: parsed.allowInsecure, AllowPrivate: application.allowPrivate}
 	health, healthAvailable := urlHealthStore()
 	return func(result provider.Result) (string, error) {
 		file, err := downloader.Download(ctx, result, expandHome(parsed.downloadDir))

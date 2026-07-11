@@ -71,11 +71,11 @@ its bounded query.
 
 Only direct font files are emitted. Direct ZIP, TAR, and compressed TAR results
 are inspected within fixed entry and expanded-size limits. Extensionless or
-mislabeled responses are considered only when the server advertises an archive
-or generic binary content type and the bytes match a supported archive
-signature. HTML pages, download forms, and gated flows remain excluded. Both
-backends run concurrently and merge by direct URL plus archive member. A
-failure in one backend does not discard results from the other.
+mislabeled responses are considered only when the bytes match a supported
+archive signature. Explicit HTML, text, JSON, and XML response types are
+rejected before reading the body. Download forms and gated flows remain
+excluded. Both backends run concurrently and merge by direct URL plus archive
+member. A failure in one backend does not discard results from the other.
 
 ## Source plugins
 

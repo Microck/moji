@@ -21,6 +21,8 @@ type App struct {
 	Stdout io.Writer
 	Stderr io.Writer
 	Client *http.Client
+
+	allowPrivate bool
 }
 
 type options struct {

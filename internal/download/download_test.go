@@ -27,7 +27,7 @@ func TestDownloadExtractsAndValidatesArchiveMember(t *testing.T) {
 	}))
 	defer server.Close()
 	destination := t.TempDir()
-	file, err := (Downloader{Client: server.Client()}).Download(context.Background(), provider.Result{
+	file, err := (Downloader{Client: server.Client(), AllowPrivate: true}).Download(context.Background(), provider.Result{
 		Filename: "Example-Regular.otf", Format: "otf", URL: server.URL, Source: "fixture",
 		ArchiveFormat: "zip", ArchiveMember: "Family/Example-Regular.otf",
 	}, destination)
@@ -46,7 +46,7 @@ func TestDownloadClassifiesMalformedArchiveAsInvalidContent(t *testing.T) {
 		response.Write([]byte("not a zip archive"))
 	}))
 	defer server.Close()
-	_, err := (Downloader{Client: server.Client()}).Download(context.Background(), provider.Result{
+	_, err := (Downloader{Client: server.Client(), AllowPrivate: true}).Download(context.Background(), provider.Result{
 		URL: server.URL, Filename: "Example-Regular.otf", Format: "otf",
 		ArchiveFormat: "zip", ArchiveMember: "Example-Regular.otf",
 	}, t.TempDir())
@@ -84,7 +84,7 @@ func TestDownloadValidatesAndDeduplicates(t *testing.T) {
 	}))
 	defer server.Close()
 	destination := t.TempDir()
-	d := Downloader{Client: server.Client()}
+	d := Downloader{Client: server.Client(), AllowPrivate: true}
 	result := provider.Result{URL: server.URL, Source: "fixture", Filename: "../Example.otf", Format: "otf"}
 	first, err := d.Download(context.Background(), result, destination)
 	if err != nil {
@@ -107,7 +107,7 @@ func TestDownloadRejectsInvalidContentWithoutResidue(t *testing.T) {
 	server := httptest.NewTLSServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) { response.Write([]byte("html response")) }))
 	defer server.Close()
 	destination := t.TempDir()
-	_, err := (Downloader{Client: server.Client()}).Download(context.Background(), provider.Result{URL: server.URL, Filename: "bad.ttf", Format: "ttf"}, destination)
+	_, err := (Downloader{Client: server.Client(), AllowPrivate: true}).Download(context.Background(), provider.Result{URL: server.URL, Filename: "bad.ttf", Format: "ttf"}, destination)
 	if err == nil {
 		t.Fatal("expected invalid magic error")
 	}
@@ -139,7 +139,7 @@ func TestDownloadBatchLeavesDestinationUnchangedWhenAnyFontIsInvalid(t *testing.
 		t.Fatal(err)
 	}
 
-	_, err := (Downloader{Client: server.Client()}).DownloadBatch(context.Background(), []provider.Result{
+	_, err := (Downloader{Client: server.Client(), AllowPrivate: true}).DownloadBatch(context.Background(), []provider.Result{
 		{URL: server.URL + "/valid.otf", Filename: "Family-Regular.otf", Format: "otf"},
 		{URL: server.URL + "/invalid.otf", Filename: "Family-Bold.otf", Format: "otf"},
 	}, destination)
@@ -163,6 +163,18 @@ func TestDownloadRejectsInsecureHTTP(t *testing.T) {
 	}
 }
 
+func TestDownloadRejectsPrivateNetworkDestinations(t *testing.T) {
+	t.Parallel()
+	for _, rawURL := range []string{"https://127.0.0.1/font.ttf", "https://localhost/font.ttf"} {
+		_, err := (Downloader{}).Download(context.Background(), provider.Result{
+			URL: rawURL, Source: "fixture", Filename: "font.ttf", Format: "ttf",
+		}, t.TempDir())
+		if err == nil || !strings.Contains(err.Error(), "non-public address") {
+			t.Fatalf("url=%s err=%v", rawURL, err)
+		}
+	}
+}
+
 func TestDownloadDeduplicatesSameBytesAcrossFilenames(t *testing.T) {
 	t.Parallel()
 	server := httptest.NewTLSServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
@@ -170,7 +182,7 @@ func TestDownloadDeduplicatesSameBytesAcrossFilenames(t *testing.T) {
 	}))
 	defer server.Close()
 	destination := t.TempDir()
-	downloader := Downloader{Client: server.Client()}
+	downloader := Downloader{Client: server.Client(), AllowPrivate: true}
 	first, err := downloader.Download(context.Background(), provider.Result{URL: server.URL, Filename: "First.otf", Format: "otf"}, destination)
 	if err != nil {
 		t.Fatal(err)
@@ -195,7 +207,7 @@ func TestDownloadCapsRedirectsAtFive(t *testing.T) {
 		http.Redirect(response, request, "/next", http.StatusFound)
 	}))
 	defer server.Close()
-	_, err := (Downloader{Client: server.Client()}).Download(context.Background(), provider.Result{URL: server.URL, Filename: "font.otf", Format: "otf"}, t.TempDir())
+	_, err := (Downloader{Client: server.Client(), AllowPrivate: true}).Download(context.Background(), provider.Result{URL: server.URL, Filename: "font.otf", Format: "otf"}, t.TempDir())
 	if err == nil || redirects != 5 {
 		t.Fatalf("redirects=%d err=%v", redirects, err)
 	}
@@ -208,7 +220,7 @@ func TestDownloadRejectsBodyOverMaximumSize(t *testing.T) {
 	}))
 	defer server.Close()
 	destination := t.TempDir()
-	_, err := (Downloader{Client: server.Client(), MaxSize: 16}).Download(context.Background(), provider.Result{URL: server.URL, Filename: "large.otf", Format: "otf"}, destination)
+	_, err := (Downloader{Client: server.Client(), MaxSize: 16, AllowPrivate: true}).Download(context.Background(), provider.Result{URL: server.URL, Filename: "large.otf", Format: "otf"}, destination)
 	if err == nil {
 		t.Fatal("expected maximum-size error")
 	}
@@ -228,7 +240,7 @@ func TestDownloadRejectsHTTPSDowngradeRedirect(t *testing.T) {
 		http.Redirect(response, request, insecure.URL+"/font.otf", http.StatusFound)
 	}))
 	defer secure.Close()
-	_, err := (Downloader{Client: secure.Client()}).Download(context.Background(), provider.Result{URL: secure.URL, Filename: "font.otf", Format: "otf"}, t.TempDir())
+	_, err := (Downloader{Client: secure.Client(), AllowPrivate: true}).Download(context.Background(), provider.Result{URL: secure.URL, Filename: "font.otf", Format: "otf"}, t.TempDir())
 	if err == nil {
 		t.Fatal("expected HTTPS downgrade redirect to be rejected")
 	}

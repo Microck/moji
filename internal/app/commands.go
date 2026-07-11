@@ -38,7 +38,7 @@ func (application App) runGet(ctx context.Context, results []provider.Result, pa
 		application.writeTable(preview)
 		return 0
 	}
-	downloader := download.Downloader{Client: application.Client, AllowInsecure: parsed.allowInsecure}
+	downloader := download.Downloader{Client: application.Client, AllowInsecure: parsed.allowInsecure, AllowPrivate: application.allowPrivate}
 	health, healthAvailable := urlHealthStore()
 	if family {
 		return application.runGetFamily(ctx, downloader, health, healthAvailable, results, maximum, parsed)

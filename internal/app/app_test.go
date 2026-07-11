@@ -36,7 +36,7 @@ func TestRunSearchJSONAndGetDownload(t *testing.T) {
 	t.Setenv("XDG_CACHE_HOME", filepath.Join(root, "cache"))
 
 	var stdout, stderr bytes.Buffer
-	application := App{Stdout: &stdout, Stderr: &stderr, Client: server.Client()}
+	application := App{Stdout: &stdout, Stderr: &stderr, Client: server.Client(), allowPrivate: true}
 	if code := application.Run(context.Background(), []string{"Example", "--json", "--no-cache"}); code != 0 {
 		t.Fatalf("search code=%d stderr=%s", code, stderr.String())
 	}
@@ -74,7 +74,7 @@ func TestRunGetFallsBackAfterInvalidRankedCandidate(t *testing.T) {
 	defer server.Close()
 	destination := filepath.Join(root, "fonts")
 	var stdout, stderr bytes.Buffer
-	application := App{Stdout: &stdout, Stderr: &stderr, Client: server.Client()}
+	application := App{Stdout: &stdout, Stderr: &stderr, Client: server.Client(), allowPrivate: true}
 	results := []provider.Result{
 		{URL: server.URL + "/best.otf", Filename: "Example-Bold.otf", Format: "otf", Source: "first"},
 		{URL: server.URL + "/fallback.ttf", Filename: "Example-Bold.ttf", Format: "ttf", Source: "second"},
@@ -118,7 +118,7 @@ func TestRunGetKeepsCandidatesBeyondRequestedMaximumForFallback(t *testing.T) {
 	t.Setenv("MOJI_CONFIG", configPath)
 	t.Setenv("XDG_CACHE_HOME", filepath.Join(root, "cache"))
 	var stdout, stderr bytes.Buffer
-	application := App{Stdout: &stdout, Stderr: &stderr, Client: server.Client()}
+	application := App{Stdout: &stdout, Stderr: &stderr, Client: server.Client(), allowPrivate: true}
 
 	if code := application.Run(context.Background(), []string{"get", "Example bold", "--allow-insecure", "--no-cache"}); code != 0 {
 		t.Fatalf("code=%d stderr=%s", code, stderr.String())
@@ -139,7 +139,7 @@ func TestRunGetReportsEveryFailedCandidate(t *testing.T) {
 	}))
 	defer server.Close()
 	var stderr bytes.Buffer
-	application := App{Stdout: &bytes.Buffer{}, Stderr: &stderr, Client: server.Client()}
+	application := App{Stdout: &bytes.Buffer{}, Stderr: &stderr, Client: server.Client(), allowPrivate: true}
 	results := []provider.Result{
 		{URL: server.URL + "/one.otf", Filename: "Example-One.otf", Format: "otf", Source: "one"},
 		{URL: server.URL + "/two.ttf", Filename: "Example-Two.ttf", Format: "ttf", Source: "two"},
@@ -160,7 +160,7 @@ func TestInteractiveDownloadRecordsInvalidURLHealth(t *testing.T) {
 		response.Write([]byte("not a font"))
 	}))
 	defer server.Close()
-	application := App{Client: server.Client()}
+	application := App{Client: server.Client(), allowPrivate: true}
 	downloadFont := application.interactiveDownloader(context.Background(), options{downloadDir: filepath.Join(root, "fonts")})
 	_, err := downloadFont(provider.Result{URL: server.URL, Filename: "Example.otf", Format: "otf"})
 	if err == nil {
@@ -201,7 +201,7 @@ func TestRunGetFamilyFallsBackAsACompleteSameSourceGroup(t *testing.T) {
 	defer server.Close()
 	destination := t.TempDir()
 	var stdout, stderr bytes.Buffer
-	application := App{Stdout: &stdout, Stderr: &stderr, Client: server.Client()}
+	application := App{Stdout: &stdout, Stderr: &stderr, Client: server.Client(), allowPrivate: true}
 	results := []provider.Result{
 		{URL: server.URL + "/broken/Regular.otf", Filename: "Example-Regular.otf", Format: "otf", Source: "broken", Score: 20},
 		{URL: server.URL + "/broken/Bold.otf", Filename: "Example-Bold.otf", Format: "otf", Source: "broken", Score: 19},

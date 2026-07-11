@@ -17,6 +17,7 @@ import (
 
 	"github.com/microck/moji/internal/archivefont"
 	"github.com/microck/moji/internal/provider"
+	"github.com/microck/moji/internal/safehttp"
 )
 
 const DefaultMaxSize int64 = 50 << 20
@@ -25,6 +26,9 @@ type Downloader struct {
 	Client        *http.Client
 	MaxSize       int64
 	AllowInsecure bool
+	// AllowPrivate is only for trusted local test fixtures. The application
+	// never exposes it through configuration or CLI flags.
+	AllowPrivate bool
 }
 
 type File struct {
@@ -79,11 +83,7 @@ func (d Downloader) Download(ctx context.Context, result provider.Result, destin
 	if parsed.Scheme != "https" && !(parsed.Scheme == "http" && d.AllowInsecure) {
 		return File{}, errors.New("the download uses insecure HTTP, so Moji blocked it before saving a file. Choose another result or use --allow-insecure only if you trust this source")
 	}
-	client := d.Client
-	if client == nil {
-		client = &http.Client{}
-	}
-	clientCopy := *client
+	clientCopy := safehttp.Constrain(d.Client, d.AllowPrivate)
 	originalRedirect := clientCopy.CheckRedirect
 	clientCopy.CheckRedirect = func(request *http.Request, via []*http.Request) error {
 		if request.URL.Scheme != "https" && !(request.URL.Scheme == "http" && d.AllowInsecure) {
@@ -97,7 +97,7 @@ func (d Downloader) Download(ctx context.Context, result provider.Result, destin
 		}
 		return nil
 	}
-	client = &clientCopy
+	client := &clientCopy
 	limit := d.MaxSize
 	if limit <= 0 {
 		limit = DefaultMaxSize

@@ -287,7 +287,7 @@ func TestWebSearchPreservesEveryArchiveMember(t *testing.T) {
 	defer server.Close()
 
 	out := make(chan Event, 12)
-	if err := (WebSearch{Client: server.Client(), Instance: server.URL}).Search(context.Background(), "Example", []string{"otf"}, out); err != nil {
+	if err := (WebSearch{Client: server.Client(), Instance: server.URL}).Search(localDiscoveryContext(), "Example", []string{"otf"}, out); err != nil {
 		t.Fatal(err)
 	}
 	close(out)
