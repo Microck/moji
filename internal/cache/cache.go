@@ -78,7 +78,7 @@ func DefaultDirectory() (string, error) {
 func (store Store) key(query, source string, formats []string) string {
 	ordered := append([]string(nil), formats...)
 	sort.Strings(ordered)
-	digest := sha256.Sum256([]byte(strings.ToLower(strings.TrimSpace(query)) + "\x00" + source + "\x00" + strings.Join(ordered, ",")))
+	digest := sha256.Sum256([]byte("v2\x00" + strings.ToLower(strings.TrimSpace(query)) + "\x00" + source + "\x00" + strings.Join(ordered, ",")))
 	return hex.EncodeToString(digest[:]) + ".json"
 }
 

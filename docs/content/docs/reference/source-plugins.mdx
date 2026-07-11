@@ -1,0 +1,62 @@
+---
+title: Source plugin protocol
+description: Add direct font discovery sources with a local executable.
+---
+
+A source plugin is an executable listed in `source_plugins`. Moji starts each
+configured executable once per adaptive search round, writes one JSON request
+to stdin, and reads one JSON response from stdout. Diagnostics belong on
+stderr.
+
+## Request
+
+```json
+{
+  "version": 1,
+  "query": "Silka Mono",
+  "formats": ["otf", "ttf", "woff2"]
+}
+```
+
+Version `1` has three fields: the protocol version, the current query variant,
+and the formats accepted by the user.
+
+## Response
+
+```json
+{
+  "version": 1,
+  "results": [
+    {
+      "url": "https://cdn.example/SilkaMono-Regular.otf",
+      "license": "OFL-1.1",
+      "trusted": true
+    }
+  ]
+}
+```
+
+The response `version` must be `1`. Within each result, only `url` is required.
+`license` is metadata, not a grant of permission.
+`trusted` defaults to false and should be true only when the plugin can vouch
+for the file source.
+
+Moji discards webpages, unsupported formats, non-HTTPS URLs, and malformed
+results. CSS and supported archive URLs pass through the same bounded
+discovery and extraction code as built-in providers. Plugin output is limited
+to 2 MiB. A failed plugin does not discard results from another configured
+plugin.
+
+## Configuration
+
+```yaml
+source_plugins:
+  - /home/me/.local/bin/my-font-source
+
+providers:
+  plugins:
+    enabled: true
+```
+
+Plugin executables are trusted local code and run with Moji's environment and
+user permissions. Configure only executables you have inspected and trust.

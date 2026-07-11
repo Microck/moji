@@ -21,13 +21,14 @@ var mojiWordmark = []string{
 	"█ ▀ █ █▄█ █▄█ █",
 }
 
-func NewHomeModel(search SearchFunc, downloader DownloadFunc, color bool, wantedWeight string, ranking rank.Weights, maximum int) Model {
+func NewHomeModel(search SearchFunc, downloader DownloadFunc, color bool, wantedWeight string, ranking rank.Weights, maximum int, homeHint string) Model {
 	model := NewModel(nil, downloader, color)
 	model.home = true
 	model.search = search
 	model.wantedWeight = wantedWeight
 	model.ranking = ranking
 	model.maximum = maximum
+	model.homeHint = homeHint
 	return model
 }
 
@@ -115,6 +116,14 @@ func (model Model) viewHome() string {
 	body = append(body, model.accent.Render("└"+strings.Repeat("─", max(0, inputWidth-2))+"┘"))
 	if model.termHeight() >= 12 {
 		body = append(body, model.faint.Render("Type a font name, then press Enter."))
+	}
+	if model.homeHint != "" {
+		body = append(body, "")
+		for _, line := range wrapCells("[!] "+model.homeHint, contentWidth) {
+			if line != "" {
+				body = append(body, model.warning.Render(line))
+			}
+		}
 	}
 	if model.status != "" {
 		body = append(body, model.accent.Render(truncate(model.status, contentWidth)))

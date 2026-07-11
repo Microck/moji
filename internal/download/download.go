@@ -1,8 +1,10 @@
 package download
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -13,6 +15,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/microck/moji/internal/archivefont"
 	"github.com/microck/moji/internal/provider"
 )
 
@@ -76,6 +79,21 @@ func (d Downloader) Download(ctx context.Context, result provider.Result, destin
 	if response.ContentLength > limit {
 		return File{}, fmt.Errorf("the font is larger than the %d-byte safety limit, so no file was saved. Try another result", limit)
 	}
+	contentReader := io.Reader(response.Body)
+	if result.ArchiveMember != "" {
+		archive, readErr := io.ReadAll(io.LimitReader(response.Body, limit+1))
+		if readErr != nil {
+			return File{}, fmt.Errorf("the archive download stopped before it completed: %w. No file was saved", readErr)
+		}
+		if int64(len(archive)) > limit {
+			return File{}, fmt.Errorf("the archive is larger than the %d-byte safety limit, so no file was saved", limit)
+		}
+		member, extractErr := archivefont.Extract(archive, result.ArchiveFormat, result.ArchiveMember, archivefont.DefaultLimits())
+		if extractErr != nil {
+			return File{}, fmt.Errorf("Moji couldn't safely extract %s: %w. No file was saved", result.ArchiveMember, extractErr)
+		}
+		contentReader = bytes.NewReader(member)
+	}
 	if err := os.MkdirAll(destination, 0o755); err != nil {
 		return File{}, fmt.Errorf("Moji couldn't create the download directory %s: %w. Check the directory permissions, then try again", destination, err)
 	}
@@ -90,7 +108,7 @@ func (d Downloader) Download(ctx context.Context, result provider.Result, destin
 	temporaryPath := temporary.Name()
 	defer os.Remove(temporaryPath)
 	hash := sha256.New()
-	written, copyErr := io.Copy(io.MultiWriter(temporary, hash), io.LimitReader(response.Body, limit+1))
+	written, copyErr := io.Copy(io.MultiWriter(temporary, hash), io.LimitReader(contentReader, limit+1))
 	closeErr := temporary.Close()
 	if copyErr != nil {
 		return File{}, fmt.Errorf("the download stopped before it completed: %w. No font was saved; check your connection and try again", copyErr)
@@ -156,13 +174,67 @@ func ValidateMagic(format string, content []byte) error {
 	}
 	magic := string(content[:4])
 	valid := map[string][]string{"otf": {"OTTO"}, "ttf": {"\x00\x01\x00\x00", "OTTO"}, "woff": {"wOFF"}, "woff2": {"wOF2"}}
-	for _, expected := range valid[strings.ToLower(format)] {
+	format = strings.ToLower(format)
+	switch format {
+	case "pfb":
+		if validatePFB(content) {
+			return nil
+		}
+		return errors.New("the downloaded content is not a valid pfb Type 1 font. No file was saved; try another source")
+	case "pfm":
+		if len(content) >= 117 && binary.LittleEndian.Uint16(content[:2]) == 0x0100 && int(binary.LittleEndian.Uint32(content[2:6])) == len(content) {
+			return nil
+		}
+		return errors.New("the downloaded content is not a valid pfm metrics file. No file was saved; try another source")
+	case "dfont":
+		if validateDFont(content) {
+			return nil
+		}
+		return errors.New("the downloaded content is not a valid dfont resource font. No file was saved; try another source")
+	}
+	for _, expected := range valid[format] {
 		if magic == expected {
 			return nil
 		}
 	}
-	if _, supported := valid[strings.ToLower(format)]; !supported {
-		return fmt.Errorf("Moji can't validate the %q font format. No file was saved; choose otf, ttf, woff, or woff2", format)
+	if _, supported := valid[format]; !supported {
+		return fmt.Errorf("Moji can't validate the %q font format. No file was saved; choose otf, ttf, woff, woff2, dfont, pfb, or pfm", format)
 	}
 	return fmt.Errorf("the downloaded content is not a valid %s font. No file was saved; try another source", format)
+}
+
+func validatePFB(content []byte) bool {
+	for offset := 0; offset+2 <= len(content); {
+		if content[offset] != 0x80 {
+			return false
+		}
+		kind := content[offset+1]
+		if kind == 0x03 {
+			return offset+2 == len(content)
+		}
+		if (kind != 0x01 && kind != 0x02) || offset+6 > len(content) {
+			return false
+		}
+		length := int(binary.LittleEndian.Uint32(content[offset+2 : offset+6]))
+		if length <= 0 || offset+6+length > len(content) {
+			return false
+		}
+		offset += 6 + length
+	}
+	return false
+}
+
+func validateDFont(content []byte) bool {
+	if len(content) < 16 {
+		return false
+	}
+	dataOffset := int(binary.BigEndian.Uint32(content[0:4]))
+	mapOffset := int(binary.BigEndian.Uint32(content[4:8]))
+	dataLength := int(binary.BigEndian.Uint32(content[8:12]))
+	mapLength := int(binary.BigEndian.Uint32(content[12:16]))
+	if dataOffset < 16 || mapOffset < 16 || dataLength <= 0 || mapLength <= 0 ||
+		dataOffset > len(content)-dataLength || mapOffset > len(content)-mapLength {
+		return false
+	}
+	return bytes.Contains(content[mapOffset:mapOffset+mapLength], []byte("sfnt"))
 }

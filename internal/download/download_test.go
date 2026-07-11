@@ -1,7 +1,10 @@
 package download
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
+	"encoding/binary"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -11,6 +14,53 @@ import (
 
 	"github.com/microck/moji/internal/provider"
 )
+
+func TestDownloadExtractsAndValidatesArchiveMember(t *testing.T) {
+	t.Parallel()
+	var archive bytes.Buffer
+	writer := zip.NewWriter(&archive)
+	member, _ := writer.Create("Family/Example-Regular.otf")
+	member.Write(append([]byte("OTTO"), make([]byte, 32)...))
+	writer.Close()
+	server := httptest.NewTLSServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		response.Write(archive.Bytes())
+	}))
+	defer server.Close()
+	destination := t.TempDir()
+	file, err := (Downloader{Client: server.Client()}).Download(context.Background(), provider.Result{
+		Filename: "Example-Regular.otf", Format: "otf", URL: server.URL, Source: "fixture",
+		ArchiveFormat: "zip", ArchiveMember: "Family/Example-Regular.otf",
+	}, destination)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content, err := os.ReadFile(file.Path)
+	if err != nil || string(content[:4]) != "OTTO" {
+		t.Fatalf("content=%x err=%v", content, err)
+	}
+}
+
+func TestValidateLegacyFontFormats(t *testing.T) {
+	t.Parallel()
+	pfb := []byte{0x80, 0x01, 0x04, 0x00, 0x00, 0x00, 'f', 'o', 'n', 't', 0x80, 0x03}
+	pfm := make([]byte, 117)
+	binary.LittleEndian.PutUint16(pfm[:2], 0x0100)
+	binary.LittleEndian.PutUint32(pfm[2:6], uint32(len(pfm)))
+	dfont := make([]byte, 64)
+	binary.BigEndian.PutUint32(dfont[0:4], 16)
+	binary.BigEndian.PutUint32(dfont[4:8], 24)
+	binary.BigEndian.PutUint32(dfont[8:12], 8)
+	binary.BigEndian.PutUint32(dfont[12:16], 40)
+	copy(dfont[32:], "sfnt")
+	for format, content := range map[string][]byte{"pfb": pfb, "pfm": pfm, "dfont": dfont} {
+		if err := ValidateMagic(format, content); err != nil {
+			t.Errorf("%s validation failed: %v", format, err)
+		}
+		if err := ValidateMagic(format, content[:len(content)-1]); err == nil {
+			t.Errorf("truncated %s passed validation", format)
+		}
+	}
+}
 
 func TestDownloadValidatesAndDeduplicates(t *testing.T) {
 	t.Parallel()

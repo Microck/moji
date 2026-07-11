@@ -1,5 +1,5 @@
 {
   "title": "Reference",
   "icon": "BookOpen",
-  "pages": ["cli", "configuration", "providers", "errors-and-exit-codes"]
+  "pages": ["cli", "configuration", "providers", "source-plugins", "errors-and-exit-codes"]
 }

@@ -57,9 +57,16 @@ moji get "Inter entire family" --download-dir ~/Downloads/moji
 
 ## providers
 
-the default GetFonts provider works without an account. GitHub Code Search
-requires authentication, so `moji` activates it only when `GITHUB_TOKEN` or
-`github_token` is configured.
+the default GetFonts and registry providers work without an account. GitHub's
+repository, tree, and release search also uses its small unauthenticated
+allowance. set `GITHUB_TOKEN` or `github_token` to add Code Search and higher
+limits. the TUI points this out when GitHub search is limited.
+
+the `websearch` provider automatically uses
+[`kagi-cli`](https://github.com/Microck/kagi-cli) when it is installed. Run
+`kagi auth` once. Ordinary web pages are ignored. direct CSS font URLs and
+bounded ZIP or TAR archive members can become results. configured source
+plugins pass through the same HTTPS, format, and download validation boundary.
 
 ```bash
 export GITHUB_TOKEN=github_pat_example
@@ -69,8 +76,8 @@ moji "Inter" --provider github
 do not pass tokens as command-line flags. use `--token-stdin` when a token only
 needs to exist for one invocation.
 
-SearXNG search is also available, but it stays disabled until both the provider
-and an instance URL are configured.
+the same `websearch` provider also uses SearXNG when an instance URL is
+configured.
 
 ## commands
 
@@ -105,15 +112,18 @@ the default config lives at `~/.moji/config.yaml` and is written with mode
 download_dir: ~/Downloads/moji
 search_timeout_seconds: 15
 cache_ttl_seconds: 3600
-default_formats: [otf, ttf, woff2]
+default_formats: [otf, ttf, woff2, dfont, pfb, pfm]
+source_plugins: []
 
 providers:
   github:
     enabled: true
   getfonts:
     enabled: true
+  registry:
+    enabled: true
   websearch:
-    enabled: false
+    enabled: true
     instance: ""
 ```
 

@@ -44,6 +44,10 @@ func TestParseFormats(t *testing.T) {
 	if _, err := ParseFormats("exe"); err == nil {
 		t.Fatal("expected unsupported format error")
 	}
+	legacy, err := ParseFormats("dfont,pfb,pfm")
+	if err != nil || !reflect.DeepEqual(legacy, []string{"dfont", "pfb", "pfm"}) {
+		t.Fatalf("legacy formats = %#v, err=%v", legacy, err)
+	}
 }
 
 func TestEnvironmentTokenPrecedesConfig(t *testing.T) {

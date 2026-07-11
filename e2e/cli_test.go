@@ -58,7 +58,7 @@ func TestMojiBinaryEndToEnd(t *testing.T) {
 
 	configPath := filepath.Join(root, "config.yaml")
 	downloadDirectory := filepath.Join(root, "downloads")
-	configBody := fmt.Sprintf("download_dir: %s\nsearch_timeout_seconds: 2\ncache_ttl_seconds: 60\ndefault_formats: [otf]\nproviders:\n  github:\n    enabled: false\n  getfonts:\n    enabled: true\n    instance: %s\n  websearch:\n    enabled: false\n", downloadDirectory, server.URL+"/api/search")
+	configBody := fmt.Sprintf("download_dir: %s\nsearch_timeout_seconds: 2\ncache_ttl_seconds: 60\ndefault_formats: [otf]\nproviders:\n  github:\n    enabled: false\n  getfonts:\n    enabled: true\n    instance: %s\n  registry:\n    enabled: false\n  websearch:\n    enabled: false\n", downloadDirectory, server.URL+"/api/search")
 	if err := os.WriteFile(configPath, []byte(configBody), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -77,11 +77,11 @@ func TestMojiBinaryEndToEnd(t *testing.T) {
 		t.Fatalf("non-interactive default returned %d results, want 10: %s", count, searchOutput)
 	}
 
-	interactiveOutput := runTUI(t, binary, []string{"MojiFixture", "--no-cache"}, environment, nil, "MojiFixture-Regular.otf")
+	interactiveOutput := runTUI(t, binary, []string{"MojiFixture", "--no-cache"}, environment, nil, "Found 12 results")
 	if !bytes.Contains(interactiveOutput, []byte("Found 12 results")) || !bytes.Contains(interactiveOutput, []byte("MojiFixture-Regular.otf")) {
 		t.Fatalf("TUI did not render fixture result: %q", interactiveOutput)
 	}
-	homeOutput := runTUI(t, binary, nil, environment, []byte("MojiFixture\r"), "MojiFixture-Regular.otf")
+	homeOutput := runTUI(t, binary, nil, environment, []byte("MojiFixture\r"), "Found 12 results")
 	if !bytes.Contains(homeOutput, []byte("Type a font name")) || !bytes.Contains(homeOutput, []byte("Found 12 results")) {
 		t.Fatalf("home TUI did not transition to results: %q", homeOutput)
 	}

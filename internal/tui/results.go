@@ -18,6 +18,7 @@ type DownloadFunc func(provider.Result) (string, error)
 
 type Model struct {
 	home           bool
+	homeHint       string
 	query          string
 	search         SearchFunc
 	all            []provider.Result
@@ -40,6 +41,7 @@ type Model struct {
 	brand          lipgloss.Style
 	accent         lipgloss.Style
 	faint          lipgloss.Style
+	warning        lipgloss.Style
 	width          int
 	height         int
 }
@@ -63,15 +65,17 @@ func NewModel(results []provider.Result, downloader DownloadFunc, color bool) Mo
 		model.brand = lipgloss.NewStyle().Foreground(lipgloss.Color("#FF8C00")).Bold(true)
 		model.accent = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFA500"))
 		model.faint = lipgloss.NewStyle().Foreground(lipgloss.Color("#666666"))
+		model.warning = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFD75F")).Bold(true)
 	}
 	model.refresh()
 	return model
 }
 
-func NewLiveModel(events <-chan provider.Event, downloader DownloadFunc, color bool, wantedWeight string, ranking rank.Weights, maximum int) Model {
+func NewLiveModel(events <-chan provider.Event, downloader DownloadFunc, color bool, query, wantedWeight string, ranking rank.Weights, maximum int) Model {
 	model := NewModel(nil, downloader, color)
 	model.events = events
 	model.loading = true
+	model.query = rank.NormalizeQuery(query)
 	model.wantedWeight = wantedWeight
 	model.ranking = ranking
 	model.maximum = maximum
@@ -399,18 +403,19 @@ func (model Model) resultRow(result provider.Result, selected bool) []string {
 		}
 		return line
 	}
+	format := displayFormat(result)
 	if width >= 72 {
-		formatWidth, weightWidth := 6, 11
+		formatWidth, weightWidth := 7, 11
 		sourceWidth := min(28, max(12, width/4))
 		nameWidth := max(8, width-2-formatWidth-weightWidth-sourceWidth-6)
 		line := prefix + padRight(truncate(result.Filename, nameWidth), nameWidth) + "  " +
-			padRight(strings.ToUpper(result.Format), formatWidth) + " " +
+			padRight(format, formatWidth) + " " +
 			padRight(truncate(displayWeight(result.Weight), weightWidth), weightWidth) + " " +
 			truncate(result.Source, sourceWidth)
 		return []string{decorate(line)}
 	}
 	name := prefix + truncate(result.Filename, max(1, width-2))
-	metadata := "  " + strings.ToUpper(result.Format) + "  " + displayWeight(result.Weight)
+	metadata := "  " + format + "  " + displayWeight(result.Weight)
 	if width >= 42 && result.Source != "" {
 		metadata += "  " + result.Source
 	}
@@ -424,7 +429,7 @@ func (model Model) detailLines(result provider.Result) []string {
 	for index := range nameLines {
 		lines[index] = model.accent.Render(nameLines[index])
 	}
-	fields := [][2]string{{"Format", strings.ToUpper(result.Format)}, {"Weight", displayWeight(result.Weight)}, {"Source", result.Source}, {"License", result.License}, {"URL", result.URL}}
+	fields := [][2]string{{"Format", displayFormat(result)}, {"Weight", displayWeight(result.Weight)}, {"Source", result.Source}, {"License", result.License}, {"URL", result.URL}}
 	for _, field := range fields {
 		lines = append(lines, wrapCells(field[0]+": "+field[1], width)...)
 	}
@@ -532,7 +537,7 @@ func eventStatus(event provider.Event) string {
 func (model *Model) refresh() {
 	model.visible = model.visible[:0]
 	filter := strings.ToLower(model.filter)
-	for _, result := range rank.Results(model.all, model.wantedWeight, model.ranking) {
+	for _, result := range rank.Results(model.all, model.query, model.wantedWeight, model.ranking) {
 		weight := rank.WeightOf(result)
 		if model.wantedWeight != "" && weight != model.wantedWeight {
 			continue
@@ -554,8 +559,6 @@ func (model *Model) refresh() {
 		sort.SliceStable(model.visible, func(i, j int) bool { return model.visible[i].Format < model.visible[j].Format })
 	case 2:
 		sort.SliceStable(model.visible, func(i, j int) bool { return model.visible[i].SizeBytes < model.visible[j].SizeBytes })
-	default:
-		sort.SliceStable(model.visible, func(i, j int) bool { return model.visible[i].Score > model.visible[j].Score })
 	}
 	if model.cursor >= len(model.visible) {
 		model.cursor = max(0, len(model.visible)-1)
@@ -575,6 +578,14 @@ func displayWeight(weight string) string {
 		return "-"
 	}
 	return weight
+}
+
+func displayFormat(result provider.Result) string {
+	format := strings.ToUpper(result.Format)
+	if result.Variable {
+		format += "-VAR"
+	}
+	return format
 }
 
 func Run(input io.Reader, output io.Writer, model Model) error {
