@@ -12,18 +12,23 @@ SourceSans-SemiBoldItalic.woff2
 Inter[wght].ttf
 ```
 
-Moji splits camel case, replaces filename separators, removes variable-font
-markers, and recognizes common weight and italic suffixes. This produces a
-canonical family name and tags without changing the original filename.
+Moji splits camel case, replaces filename separators, records variable-font
+markers, and recognizes common weight, italic, and foundry-style abbreviations.
+This produces a canonical family name and tags without changing the original
+filename.
+
+JSON keeps the underlying `format` and exposes `variable: true`. Human output
+labels the same file as `TTF-VAR` or `OTF-VAR`.
 
 ## Score components
 
 The score combines:
 
-- format preference: OTF, then TTF, WOFF2, and WOFF;
+- format preference: OTF, TTF, DFONT, PFB, WOFF2, WOFF, then PFM;
 - the number of weights found for a family at one source;
 - a trust boost when a provider can establish trust;
-- a requested-weight match; and
+- a requested-weight match;
+- a variable-font bonus; and
 - a penalty for suspiciously small files.
 
 Ranking weights are configurable because a desktop design workflow and a web

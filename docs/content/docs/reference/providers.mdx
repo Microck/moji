@@ -17,25 +17,70 @@ GetFonts is the zero-configuration default.
 ## GitHub
 
 - Name: `github`
-- Default: enabled when configured
-- Authentication: required
+- Default: enabled
+- Authentication: optional; required for Code Search
 - Token sources: `GITHUB_TOKEN`, config, or `--token-stdin`
-- Queries: one GitHub Code Search request per selected format
+- Queries: one filename-variant request, then at most one broad extension fallback
 - Result trust: untrusted
 
-GitHub is not added to the active provider set without a token or custom
-endpoint. This prevents predictable unauthenticated failures.
+GitHub's general unauthenticated REST allowance does not unlock Code Search;
+the Code Search endpoint returns `Requires authentication`. Without a token,
+Moji skips that guaranteed failure and uses its bounded repository, tree, and
+release search. The TUI home screen explains that `GITHUB_TOKEN` enables code
+search and higher limits.
+
+The filename request covers compact, hyphenated, underscored, lowercase, and
+quoted exact-extension forms. Selected formats are still validated locally.
+When both code queries miss, Moji inspects at most two matching repositories.
+For each repository it reads one recursive tree and up to three releases. Tree
+files use raw GitHub URLs; release results must be direct font or supported
+archive assets.
+
+## Registry
+
+- Name: `registry`
+- Default: enabled
+- Backends: Fontsource metadata and Google Fonts CSS2
+- Authentication: none
+- Result trust: trusted catalog metadata
+
+Registry searches use structured endpoints rather than general webpages.
+Fontsource supplies direct variant URLs. Google Fonts supplies direct WOFF or
+WOFF2 URLs from its generated stylesheet. A missing family is an empty result,
+not a provider failure.
 
 ## Web search
 
 - Name: `websearch`
-- Default: disabled
-- Engine: SearXNG JSON search
+- Default: enabled when `kagi-cli` is installed or SearXNG is configured
+- Backends: auto-detected Kagi CLI and optional SearXNG JSON search
 - Configuration: `providers.websearch.instance`
 - Result policy: only direct links with a selected font extension
 - Result trust: untrusted
 
-Web search is registered only when enabled and given an instance URL.
+Kagi authentication is managed by `kagi-cli`; run `kagi auth`. Its backend
+runs one structured search and converts GitHub blob links to HTTPS raw-file
+URLs. Ordinary pages are discarded.
+
+The SearXNG backend runs six bounded queries concurrently: quoted TTF and OTF
+filenames, a VK-scoped query, an index-of query covering configured formats,
+GitHub title query, and CSS `@font-face` query. Direct ZIP, TAR, and compressed
+TAR results are inspected within fixed entry and expanded-size limits. Both
+backends run concurrently and merge by direct URL plus archive member. A
+failure in one backend does not discard results from the other.
+
+## Source plugins
+
+- Name: `plugins`
+- Default: enabled when `source_plugins` contains an executable
+- Configuration: `source_plugins`
+- Protocol: versioned JSON over stdin and stdout
+- Result trust: supplied per result, default false
+
+Plugins extend discovery without extending Moji's download trust boundary.
+Moji accepts only direct HTTPS URLs for configured formats, CSS files that
+resolve to such URLs, or supported archives with safe font members. See the
+[source plugin protocol](./source-plugins).
 
 ## Partial failure
 

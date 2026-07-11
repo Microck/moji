@@ -126,7 +126,7 @@ func (application App) Run(ctx context.Context, args []string) int {
 	if parsed.weight != "" {
 		results = rank.FilterWeight(results, strings.ToLower(parsed.weight))
 	}
-	results = rank.Results(results, strings.ToLower(parsed.weight), current.Ranking)
+	results = rank.Results(results, query, strings.ToLower(parsed.weight), current.Ranking)
 	if getMode && intent.WantFamily {
 		results = rank.SelectFamily(results, parsed.max)
 	}

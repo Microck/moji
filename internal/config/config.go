@@ -27,6 +27,7 @@ type Config struct {
 	Ranking              rank.Weights               `yaml:"ranking"`
 	RateLimits           map[string]RateLimitConfig `yaml:"rate_limits"`
 	Providers            map[string]ProviderConfig  `yaml:"providers"`
+	SourcePlugins        []string                   `yaml:"source_plugins,omitempty"`
 }
 
 type RateLimitConfig struct {
@@ -39,15 +40,17 @@ func Default() Config {
 	return Config{
 		DownloadDir:          filepath.Join(home, "Downloads", "moji"),
 		SearchTimeoutSeconds: 15, CacheTTLSeconds: 3600,
-		DefaultFormats: []string{"otf", "ttf", "woff2"}, Ranking: rank.DefaultWeights(),
+		DefaultFormats: []string{"otf", "ttf", "woff2", "dfont", "pfb", "pfm"}, Ranking: rank.DefaultWeights(),
 		RateLimits: map[string]RateLimitConfig{
 			"github":    {TimeoutSeconds: 15, Retries: 2},
 			"getfonts":  {TimeoutSeconds: 15, Retries: 1},
+			"registry":  {TimeoutSeconds: 15, Retries: 1},
+			"plugins":   {TimeoutSeconds: 20, Retries: 0},
 			"websearch": {TimeoutSeconds: 20, Retries: 0},
 		},
 		Providers: map[string]ProviderConfig{
 			"github": {Enabled: true}, "getfonts": {Enabled: true},
-			"websearch": {Enabled: false},
+			"registry": {Enabled: true}, "plugins": {Enabled: true}, "websearch": {Enabled: true},
 		},
 	}
 }
@@ -122,14 +125,14 @@ func Save(path string, config Config) error {
 
 func ParseFormats(value string) ([]string, error) {
 	if strings.TrimSpace(value) == "" || strings.EqualFold(value, "all") {
-		return []string{"otf", "ttf", "woff", "woff2"}, nil
+		return []string{"otf", "ttf", "woff", "woff2", "dfont", "pfb", "pfm"}, nil
 	}
 	seen := make(map[string]bool)
 	formats := make([]string, 0, 4)
 	for _, raw := range strings.Split(value, ",") {
 		format := strings.ToLower(strings.TrimSpace(raw))
-		if format != "otf" && format != "ttf" && format != "woff" && format != "woff2" {
-			return nil, fmt.Errorf("unsupported format %q (choose otf, ttf, woff, or woff2)", raw)
+		if format != "otf" && format != "ttf" && format != "woff" && format != "woff2" && format != "dfont" && format != "pfb" && format != "pfm" {
+			return nil, fmt.Errorf("unsupported format %q (choose otf, ttf, woff, woff2, dfont, pfb, or pfm)", raw)
 		}
 		if !seen[format] {
 			seen[format] = true
