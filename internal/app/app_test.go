@@ -72,6 +72,15 @@ func TestRunRejectsUnsupportedProviderAndBadUsage(t *testing.T) {
 	}
 }
 
+func TestHelpUsesPlainProductDescription(t *testing.T) {
+	t.Parallel()
+	var stdout bytes.Buffer
+	code := (App{Stdout: &stdout, Stderr: &bytes.Buffer{}}).Run(context.Background(), []string{"--help"})
+	if code != 0 || !strings.Contains(stdout.String(), "a terminal font finder") || strings.Contains(stdout.String(), "cozy") {
+		t.Fatalf("code=%d help=%q", code, stdout.String())
+	}
+}
+
 func TestConfigShowRedactsToken(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "config.yaml")
@@ -95,6 +104,41 @@ func TestMissingQueryExplainsHowToRecover(t *testing.T) {
 	code := (App{Stdout: &bytes.Buffer{}, Stderr: &stderr}).Run(context.Background(), []string{"get"})
 	if code != 2 || !strings.Contains(stderr.String(), "example: moji \"Inter\"") {
 		t.Fatalf("code=%d error=%q", code, stderr.String())
+	}
+}
+
+func TestBareCommandRequiresInteractiveTerminal(t *testing.T) {
+	t.Setenv("MOJI_CONFIG", filepath.Join(t.TempDir(), "missing.yaml"))
+	var stdout, stderr bytes.Buffer
+	code := (App{Stdout: &stdout, Stderr: &stderr}).Run(context.Background(), nil)
+	if code != 2 || !strings.Contains(stderr.String(), "font query is required") || stdout.Len() != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+}
+
+func TestIsTerminalRejectsNonTTYCharacterDevice(t *testing.T) {
+	device, err := os.OpenFile(os.DevNull, os.O_RDWR, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer device.Close()
+
+	if isTerminal(device) {
+		t.Fatal("/dev/null must not be treated as an interactive terminal")
+	}
+}
+
+func TestBareNonInteractiveUsageDoesNotDependOnValidConfig(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "config.yaml")
+	if err := os.WriteFile(path, []byte("not: [valid"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("MOJI_CONFIG", path)
+	var stderr bytes.Buffer
+	code := (App{Stdout: &bytes.Buffer{}, Stderr: &stderr}).Run(context.Background(), nil)
+	if code != 2 || !strings.Contains(stderr.String(), "font query is required") || strings.Contains(stderr.String(), "parse config") {
+		t.Fatalf("code=%d stderr=%q", code, stderr.String())
 	}
 }
 

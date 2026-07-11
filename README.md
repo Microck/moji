@@ -1,7 +1,11 @@
 <div align="center">
 
 ```text
-文字  moji
+   ∧＿∧
+  （ ´∀｀）  文字  moji
+  （       ）
+   |  |  |
+  （_＿）＿）
 ```
 
 <h1>moji</h1>
@@ -38,11 +42,14 @@ bun add --global @microck/moji
 search for a family:
 
 ```bash
+moji
+# or jump straight to results
 moji "Inter"
 ```
 
-when stdin and stdout are terminals, `moji` opens the interactive result list.
-redirect or pipe the command to get a stable table instead.
+bare `moji` opens the home TUI so you can type a query. pass a query to jump
+straight to the live result list. redirect or pipe a queried command to get a
+stable table instead.
 
 ```bash
 moji "Inter" --format otf,ttf
@@ -78,6 +85,7 @@ and an instance URL are configured.
 
 | command | purpose |
 | --- | --- |
+| `moji` | open the home TUI and type a font query |
 | `moji <query>` | search interactively or print a table when piped |
 | `moji get <query>` | rank results and download the best match |
 | `moji config` | create the default config when needed and open `$EDITOR` |
