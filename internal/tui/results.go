@@ -5,9 +5,11 @@ import (
 	"io"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/microck/moji/internal/provider"
 	"github.com/microck/moji/internal/rank"
 )
@@ -15,6 +17,9 @@ import (
 type DownloadFunc func(provider.Result) (string, error)
 
 type Model struct {
+	home           bool
+	query          string
+	search         SearchFunc
 	all            []provider.Result
 	visible        []provider.Result
 	cursor         int
@@ -23,6 +28,7 @@ type Model struct {
 	format         string
 	sortMode       int
 	preview        bool
+	detailOffset   int
 	status         string
 	providerStatus map[string]string
 	events         <-chan provider.Event
@@ -34,6 +40,8 @@ type Model struct {
 	brand          lipgloss.Style
 	accent         lipgloss.Style
 	faint          lipgloss.Style
+	width          int
+	height         int
 }
 
 type downloadMessage struct {
@@ -73,6 +81,20 @@ func NewLiveModel(events <-chan provider.Event, downloader DownloadFunc, color b
 func (model Model) Init() tea.Cmd { return model.waitForEvent() }
 
 func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
+	if size, ok := message.(tea.WindowSizeMsg); ok {
+		// Some PTY implementations initially report 0x0. Keep the documented
+		// fallback size until the terminal provides usable dimensions.
+		if size.Width > 0 {
+			model.width = size.Width
+		}
+		if size.Height > 0 {
+			model.height = size.Height
+		}
+		return model, nil
+	}
+	if model.home {
+		return model.updateHome(message)
+	}
 	switch message := message.(type) {
 	case eventMessage:
 		if !message.open {
@@ -116,12 +138,24 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return model, nil
 		}
+		if model.preview {
+			switch message.String() {
+			case "up", "k":
+				model.detailOffset = max(0, model.detailOffset-1)
+				return model, nil
+			case "down", "j":
+				maximum := max(0, len(model.detailLines(model.visible[model.cursor]))-model.bodyHeight())
+				model.detailOffset = min(maximum, model.detailOffset+1)
+				return model, nil
+			}
+		}
 		switch message.String() {
 		case "ctrl+c", "q":
 			return model, tea.Quit
 		case "esc":
 			if model.preview {
 				model.preview = false
+				model.detailOffset = 0
 				return model, nil
 			}
 			return model, tea.Quit
@@ -133,9 +167,18 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			if model.cursor+1 < len(model.visible) {
 				model.cursor++
 			}
+		case "pgup":
+			model.cursor = max(0, model.cursor-model.resultPageSize())
+		case "pgdown":
+			model.cursor = min(max(0, len(model.visible)-1), model.cursor+model.resultPageSize())
+		case "g", "home":
+			model.cursor = 0
+		case "G", "end":
+			model.cursor = max(0, len(model.visible)-1)
 		case "enter":
 			if len(model.visible) > 0 {
 				model.preview = true
+				model.detailOffset = 0
 			}
 		case "/":
 			model.filtering = true
@@ -167,57 +210,295 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (model Model) View() string {
-	var view strings.Builder
-	view.WriteString(model.brand.Render("文字  moji"))
-	view.WriteString("\n\n")
+	if model.home {
+		return model.viewHome()
+	}
 	if model.preview && len(model.visible) > 0 {
 		result := model.visible[model.cursor]
-		fmt.Fprintf(&view, "%s\n\nFormat: %s\nWeight: %s\nSource: %s\nLicense: %s\nURL: %s\n\n",
-			model.accent.Render(result.Filename), strings.ToUpper(result.Format), displayWeight(result.Weight),
-			result.Source, result.License, result.URL)
-		view.WriteString(model.faint.Render("D: download  esc: back  q: quit"))
-		return view.String()
+		lines := model.detailLines(result)
+		maximum := max(0, len(lines)-model.bodyHeight())
+		offset := min(model.detailOffset, maximum)
+		end := min(len(lines), offset+model.bodyHeight())
+		context := "font details"
+		if len(lines) > model.bodyHeight() {
+			context += fmt.Sprintf("  lines %d-%d/%d", offset+1, end, len(lines))
+		}
+		if model.contentWidth() < 48 {
+			context = "details"
+			if len(lines) > model.bodyHeight() {
+				context += fmt.Sprintf(" %d-%d/%d", offset+1, end, len(lines))
+			}
+		}
+		return model.chrome(context, strings.Join(lines[offset:end], "\n"), model.detailHelp())
 	}
+	return model.chrome(model.resultsContext(), model.resultsBody(), model.resultsHelp())
+}
+
+func (model Model) resultsContext() string {
 	verb := "Found"
 	if model.loading {
 		verb = "Finding"
 	}
-	fmt.Fprintf(&view, "%s %d results  [format: %s]  [sort: %s]\n", verb, len(model.visible), model.format, model.sortName())
+	if model.contentWidth() < 48 {
+		if model.loading {
+			return fmt.Sprintf("finding %d", len(model.visible))
+		}
+		return fmt.Sprintf("%d results", len(model.visible))
+	}
+	return fmt.Sprintf("%s %d results  format:%s  sort:%s", verb, len(model.visible), model.format, model.sortName())
+}
+
+func (model Model) resultsBody() string {
+	lines := make([]string, 0, model.bodyHeight())
 	if len(model.providerStatus) > 0 {
 		names := make([]string, 0, len(model.providerStatus))
 		for name := range model.providerStatus {
 			names = append(names, name)
 		}
 		sort.Strings(names)
+		statuses := make([]string, 0, len(names))
 		for _, name := range names {
-			fmt.Fprintf(&view, "  %s: %s\n", name, model.providerStatus[name])
+			statuses = append(statuses, name+": "+model.providerStatus[name])
 		}
+		lines = append(lines, model.faint.Render(truncate(strings.Join(statuses, "  "), model.contentWidth())))
 	}
 	if model.filtering || model.filter != "" {
 		cursor := ""
 		if model.filtering {
 			cursor = "_"
 		}
-		fmt.Fprintf(&view, "Filter: %s%s\n", model.filter, cursor)
+		lines = append(lines, truncate("Filter: "+model.filter+cursor, model.contentWidth()))
 	}
-	view.WriteString("\n")
-	for index, result := range model.visible {
-		prefix := "  "
-		line := fmt.Sprintf("%s  %-6s %-10s %-32s", result.Filename, strings.ToUpper(result.Format), displayWeight(result.Weight), result.Source)
-		if index == model.cursor {
-			prefix = "> "
-			line = model.accent.Render(line)
-		}
-		view.WriteString(prefix + line + "\n")
+	remaining := model.bodyHeight() - len(lines)
+	if model.status != "" {
+		remaining--
 	}
 	if len(model.visible) == 0 {
-		view.WriteString("  No matching results.\n")
+		lines = append(lines, "", "  No matching results.")
+	} else if remaining > 0 {
+		lines = append(lines, model.resultWindow(remaining)...)
 	}
 	if model.status != "" {
-		view.WriteString("\n" + model.status + "\n")
+		lines = append(lines, model.accent.Render(truncate(model.status, model.contentWidth())))
 	}
-	view.WriteString("\n" + model.faint.Render("up/down: browse  enter: details  D: download  /: filter  f: format  tab: sort  q: quit"))
-	return view.String()
+	return strings.Join(lines, "\n")
+}
+
+func (model Model) renderBrand() string {
+	return model.faint.Render("(´∀｀)") + "  " + model.brand.Render("文字  moji")
+}
+
+const maxContentWidth = 112
+
+func (model Model) termWidth() int {
+	if model.width <= 0 {
+		return 100
+	}
+	return model.width
+}
+
+func (model Model) termHeight() int {
+	if model.height <= 0 {
+		return 30
+	}
+	return model.height
+}
+
+func (model Model) contentWidth() int {
+	width := model.termWidth()
+	if width >= 32 {
+		width -= 4
+	}
+	return min(maxContentWidth, max(1, width))
+}
+
+func (model Model) bodyHeight() int { return max(1, model.termHeight()-4) }
+
+func (model Model) center(block string) string {
+	padding := max(0, (model.termWidth()-model.contentWidth())/2)
+	if padding == 0 {
+		return block
+	}
+	prefix := strings.Repeat(" ", padding)
+	lines := strings.Split(block, "\n")
+	for index := range lines {
+		lines[index] = prefix + lines[index]
+	}
+	return strings.Join(lines, "\n")
+}
+
+func (model Model) centerLine(line string, boundaryWidth int) string {
+	line = truncate(line, boundaryWidth)
+	left := max(0, (model.termWidth()-lipgloss.Width(line))/2)
+	return strings.Repeat(" ", left) + line
+}
+
+func (model Model) chrome(context, body, help string) string {
+	width := model.contentWidth()
+	header := truncate(model.renderBrand()+model.faint.Render("  "+context), width)
+	rule := model.faint.Render(strings.Repeat("─", width))
+	bodyLines := strings.Split(body, "\n")
+	if body == "" {
+		bodyLines = nil
+	}
+	if len(bodyLines) > model.bodyHeight() {
+		bodyLines = bodyLines[:model.bodyHeight()]
+	}
+	for len(bodyLines) < model.bodyHeight() {
+		bodyLines = append(bodyLines, "")
+	}
+	for index := range bodyLines {
+		bodyLines[index] = truncate(bodyLines[index], width)
+	}
+	parts := []string{padRight(header, width), rule, strings.Join(bodyLines, "\n"), rule, truncate(help, width)}
+	return model.center(strings.Join(parts, "\n"))
+}
+
+func (model Model) resultWindow(height int) []string {
+	rowsPerResult := 1
+	if model.contentWidth() < 72 {
+		rowsPerResult = 2
+	}
+	capacity := max(1, height/rowsPerResult)
+	start := min(max(0, model.cursor-capacity+1), max(0, len(model.visible)-capacity))
+	end := min(len(model.visible), start+capacity)
+	lines := make([]string, 0, height)
+	for index := start; index < end; index++ {
+		lines = append(lines, model.resultRow(model.visible[index], index == model.cursor)...)
+	}
+	return lines
+}
+
+func (model Model) resultPageSize() int {
+	height := model.bodyHeight()
+	if model.status != "" {
+		height--
+	}
+	if len(model.providerStatus) > 0 {
+		height--
+	}
+	if model.filtering || model.filter != "" {
+		height--
+	}
+	if model.contentWidth() < 72 {
+		height /= 2
+	}
+	return max(1, height)
+}
+
+func (model Model) resultRow(result provider.Result, selected bool) []string {
+	width := model.contentWidth()
+	prefix := "  "
+	if selected {
+		prefix = "> "
+	}
+	decorate := func(line string) string {
+		line = truncate(line, width)
+		if selected {
+			return model.accent.Render(line)
+		}
+		return line
+	}
+	if width >= 72 {
+		formatWidth, weightWidth := 6, 11
+		sourceWidth := min(28, max(12, width/4))
+		nameWidth := max(8, width-2-formatWidth-weightWidth-sourceWidth-6)
+		line := prefix + padRight(truncate(result.Filename, nameWidth), nameWidth) + "  " +
+			padRight(strings.ToUpper(result.Format), formatWidth) + " " +
+			padRight(truncate(displayWeight(result.Weight), weightWidth), weightWidth) + " " +
+			truncate(result.Source, sourceWidth)
+		return []string{decorate(line)}
+	}
+	name := prefix + truncate(result.Filename, max(1, width-2))
+	metadata := "  " + strings.ToUpper(result.Format) + "  " + displayWeight(result.Weight)
+	if width >= 42 && result.Source != "" {
+		metadata += "  " + result.Source
+	}
+	return []string{decorate(name), decorate(model.faint.Render(truncate(metadata, width)))}
+}
+
+func (model Model) detailLines(result provider.Result) []string {
+	width := model.contentWidth()
+	nameLines := wrapCells(result.Filename, width)
+	lines := make([]string, len(nameLines))
+	for index := range nameLines {
+		lines[index] = model.accent.Render(nameLines[index])
+	}
+	fields := [][2]string{{"Format", strings.ToUpper(result.Format)}, {"Weight", displayWeight(result.Weight)}, {"Source", result.Source}, {"License", result.License}, {"URL", result.URL}}
+	for _, field := range fields {
+		lines = append(lines, wrapCells(field[0]+": "+field[1], width)...)
+	}
+	return lines
+}
+
+func (model Model) resultsHelp() string {
+	switch {
+	case model.contentWidth() < 34:
+		return model.faint.Render("j/k move  enter open  q")
+	case model.contentWidth() < 48:
+		return model.faint.Render("j/k move  enter open  q quit")
+	case model.contentWidth() < 90:
+		return model.faint.Render("up/down browse  enter details  / filter  q quit")
+	default:
+		return model.faint.Render("up/down: browse  pgup/dn: page  enter: details  D: download  /: filter  f: format  tab: sort  q: quit")
+	}
+}
+
+func (model Model) detailHelp() string {
+	if model.contentWidth() < 34 {
+		return model.faint.Render("j/k scroll  esc back")
+	}
+	if model.contentWidth() < 48 {
+		return model.faint.Render("j/k scroll  D download  esc back")
+	}
+	return model.faint.Render("up/down: scroll  D: download  esc: back  q: quit")
+}
+
+func truncate(value string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	if lipgloss.Width(value) <= width {
+		return value
+	}
+	if width <= 3 {
+		return ansi.Truncate(value, width, "")
+	}
+	return ansi.Truncate(value, width, "...")
+}
+
+func padRight(value string, width int) string {
+	return value + strings.Repeat(" ", max(0, width-lipgloss.Width(value)))
+}
+
+func wrapCells(value string, width int) []string {
+	if width <= 0 {
+		return nil
+	}
+	var lines []string
+	for value != "" {
+		if lipgloss.Width(value) <= width {
+			lines = append(lines, value)
+			break
+		}
+		cut := min(width, len(value))
+		for cut > 0 && cut < len(value) && !utf8.RuneStart(value[cut]) {
+			cut--
+		}
+		for cut > 0 && lipgloss.Width(value[:cut]) > width {
+			_, size := utf8.DecodeLastRuneInString(value[:cut])
+			cut -= size
+		}
+		if cut == 0 {
+			_, cut = utf8.DecodeRuneInString(value)
+		}
+		lines = append(lines, value[:cut])
+		value = value[cut:]
+	}
+	if len(lines) == 0 {
+		return []string{""}
+	}
+	return lines
 }
 
 func (model Model) waitForEvent() tea.Cmd {
@@ -278,6 +559,10 @@ func (model *Model) refresh() {
 	}
 	if model.cursor >= len(model.visible) {
 		model.cursor = max(0, len(model.visible)-1)
+	}
+	if len(model.visible) == 0 {
+		model.preview = false
+		model.detailOffset = 0
 	}
 }
 

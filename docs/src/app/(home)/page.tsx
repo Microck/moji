@@ -25,6 +25,11 @@ export default function HomePage() {
             <span className="h-3 w-3 rounded-full bg-amber-400" />
             <span className="h-3 w-3 rounded-full bg-green-400" />
           </div>
+          <pre aria-label="Mona, Moji's mascot" className="mb-5 text-orange-400">{`   ∧＿∧
+  （ ´∀｀）  文字  moji
+  （       ）
+   |  |  |
+  （_＿）＿）`}</pre>
           <p className="text-zinc-500">$ npm install --global @microck/moji</p>
           <p className="mt-4 text-zinc-500">$ moji get &quot;Inter bold&quot; --dry-run</p>
           <p className="mt-4 text-orange-400">Would download:</p>

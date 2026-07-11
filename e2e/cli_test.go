@@ -35,11 +35,21 @@ func TestMojiBinaryEndToEnd(t *testing.T) {
 
 	font := append([]byte("OTTO"), make([]byte, 64)...)
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if strings.HasPrefix(request.URL.Path, "/font-") {
+			response.Write(font)
+			return
+		}
 		switch request.URL.Path {
 		case "/api/search":
-			fmt.Fprintf(response, "{\"items\":[{\"name\":\"MojiFixture-Regular.otf\",\"html_url\":%q,\"repository\":{\"full_name\":\"fixture/fonts\"}}]}", "http://"+request.Host+"/font.otf")
-		case "/font.otf":
-			response.Write(font)
+			items := make([]string, 12)
+			for index := range items {
+				name := fmt.Sprintf("MojiFixture-%02d-Regular.otf", index)
+				if index == 0 {
+					name = "MojiFixture-Regular.otf"
+				}
+				items[index] = fmt.Sprintf("{\"name\":%q,\"html_url\":%q,\"repository\":{\"full_name\":\"fixture/fonts\"}}", name, fmt.Sprintf("http://%s/font-%02d.otf", request.Host, index))
+			}
+			fmt.Fprintf(response, "{\"items\":[%s]}", strings.Join(items, ","))
 		default:
 			http.NotFound(response, request)
 		}
@@ -63,42 +73,17 @@ func TestMojiBinaryEndToEnd(t *testing.T) {
 	if !bytes.Contains(searchOutput, []byte("MojiFixture-Regular.otf")) {
 		t.Fatalf("unexpected search output: %s", searchOutput)
 	}
+	if count := bytes.Count(searchOutput, []byte(`"filename"`)); count != 10 {
+		t.Fatalf("non-interactive default returned %d results, want 10: %s", count, searchOutput)
+	}
 
-	interactiveContext, cancelInteractive := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancelInteractive()
-	interactive := exec.CommandContext(interactiveContext, binary, "MojiFixture", "--no-cache")
-	interactive.Env = append(environment, "TERM=xterm-256color")
-	terminal, err := pty.Start(interactive)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := terminal.SetReadDeadline(time.Now().Add(10 * time.Second)); err != nil {
-		t.Fatal(err)
-	}
-	interactiveOutput := make([]byte, 0, 4096)
-	readBuffer := make([]byte, 4096)
-	for !bytes.Contains(interactiveOutput, []byte("MojiFixture-Regular.otf")) {
-		read, readErr := terminal.Read(readBuffer)
-		interactiveOutput = append(interactiveOutput, readBuffer[:read]...)
-		if readErr != nil {
-			t.Fatalf("TUI did not become ready: %v\n%s", readErr, interactiveOutput)
-		}
-	}
-	if _, err := terminal.Write([]byte("q")); err != nil {
-		t.Fatal(err)
-	}
-	remainder, readErr := io.ReadAll(terminal)
-	interactiveOutput = append(interactiveOutput, remainder...)
-	terminal.Close()
-	waitErr := interactive.Wait()
-	if readErr != nil && !strings.Contains(readErr.Error(), "input/output error") {
-		t.Fatalf("read TUI: %v", readErr)
-	}
-	if waitErr != nil {
-		t.Fatalf("TUI exit: %v\n%s", waitErr, interactiveOutput)
-	}
-	if !bytes.Contains(interactiveOutput, []byte("Found 1 results")) || !bytes.Contains(interactiveOutput, []byte("MojiFixture-Regular.otf")) {
+	interactiveOutput := runTUI(t, binary, []string{"MojiFixture", "--no-cache"}, environment, nil, "MojiFixture-Regular.otf")
+	if !bytes.Contains(interactiveOutput, []byte("Found 12 results")) || !bytes.Contains(interactiveOutput, []byte("MojiFixture-Regular.otf")) {
 		t.Fatalf("TUI did not render fixture result: %q", interactiveOutput)
+	}
+	homeOutput := runTUI(t, binary, nil, environment, []byte("MojiFixture\r"), "MojiFixture-Regular.otf")
+	if !bytes.Contains(homeOutput, []byte("Type a font name")) || !bytes.Contains(homeOutput, []byte("Found 12 results")) {
+		t.Fatalf("home TUI did not transition to results: %q", homeOutput)
 	}
 
 	get := exec.Command(binary, "get", "MojiFixture regular", "--allow-insecure", "--no-cache")
@@ -120,4 +105,52 @@ func TestMojiBinaryEndToEnd(t *testing.T) {
 	if output, err := cacheClear.CombinedOutput(); err != nil || !bytes.Contains(output, []byte("Cleared cache:")) {
 		t.Fatalf("cache clear: %v\n%s", err, output)
 	}
+}
+
+func runTUI(t *testing.T, binary string, args []string, environment []string, input []byte, readyText string) []byte {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	command := exec.CommandContext(ctx, binary, args...)
+	command.Env = append(environment, "TERM=xterm-256color")
+	terminal, err := pty.Start(command)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer terminal.Close()
+	output := make([]byte, 0, 4096)
+	buffer := make([]byte, 4096)
+	readUntil := func(text string) {
+		// Give each sequential phase its own budget. A slow home render should not
+		// consume the time reserved for the provider round-trip and results view.
+		if err := terminal.SetReadDeadline(time.Now().Add(20 * time.Second)); err != nil {
+			t.Fatal(err)
+		}
+		for !bytes.Contains(output, []byte(text)) {
+			read, readErr := terminal.Read(buffer)
+			output = append(output, buffer[:read]...)
+			if readErr != nil {
+				t.Fatalf("TUI did not become ready: %v\n%s", readErr, output)
+			}
+		}
+	}
+	if len(input) > 0 {
+		readUntil("Type a font name")
+		if _, err := terminal.Write(input); err != nil {
+			t.Fatal(err)
+		}
+	}
+	readUntil(readyText)
+	if _, err := terminal.Write([]byte("q")); err != nil {
+		t.Fatal(err)
+	}
+	remainder, readErr := io.ReadAll(terminal)
+	output = append(output, remainder...)
+	if readErr != nil && !strings.Contains(readErr.Error(), "input/output error") {
+		t.Fatalf("read TUI: %v", readErr)
+	}
+	if err := command.Wait(); err != nil {
+		t.Fatalf("TUI exit: %v\n%s", err, output)
+	}
+	return output
 }

@@ -11,6 +11,7 @@ import (
 
 	"github.com/microck/moji/internal/config"
 	"github.com/microck/moji/internal/rank"
+	"golang.org/x/term"
 )
 
 var Version = "0.1.0"
@@ -30,13 +31,16 @@ type options struct {
 
 func (application App) Run(ctx context.Context, args []string) int {
 	application.setDefaults()
-	if len(args) == 0 || containsHelp(args) {
+	if containsHelp(args) {
 		fmt.Fprint(application.Stdout, helpText)
 		return 0
 	}
-	if args[0] == "--version" {
+	if len(args) > 0 && args[0] == "--version" {
 		fmt.Fprintln(application.Stdout, Version)
 		return 0
+	}
+	if len(args) == 0 && (!isTerminal(application.Stdin) || !isTerminal(application.Stdout)) {
+		return application.fail(errors.New("font query is required in non-interactive mode; example: moji \"Inter\""), 2)
 	}
 	configPath, err := config.Path()
 	if err != nil {
@@ -45,6 +49,9 @@ func (application App) Run(ctx context.Context, args []string) int {
 	current, err := config.Load(configPath)
 	if err != nil {
 		return application.fail(err, 1)
+	}
+	if len(args) == 0 {
+		return application.runHome(ctx, current, current.DefaultFormats, options{downloadDir: current.DownloadDir})
 	}
 	if args[0] == "config" {
 		return application.runConfig(current, configPath, args[1:])
@@ -101,14 +108,15 @@ func (application App) Run(ctx context.Context, args []string) int {
 	if parsed.downloadDir == "" {
 		parsed.downloadDir = current.DownloadDir
 	}
+	interactive := !getMode && !parsed.json && isTerminal(application.Stdin) && isTerminal(application.Stdout)
 	if parsed.max == 0 {
 		if getMode {
 			parsed.max = intent.Max
-		} else {
+		} else if !interactive {
 			parsed.max = 10
 		}
 	}
-	if !getMode && !parsed.json && isTerminal(application.Stdin) && isTerminal(application.Stdout) {
+	if interactive {
 		return application.runInteractive(ctx, current, query, formats, parsed)
 	}
 	results, failures, err := application.search(ctx, current, query, formats, parsed)
@@ -154,8 +162,7 @@ func isTerminal(stream any) bool {
 	if !ok {
 		return false
 	}
-	info, err := file.Stat()
-	return err == nil && info.Mode()&os.ModeCharDevice != 0
+	return term.IsTerminal(int(file.Fd()))
 }
 
 func colorEnabled() bool {
