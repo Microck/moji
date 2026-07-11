@@ -16,6 +16,10 @@ import (
 
 var Version = "0.2.1"
 
+// allowPrivateBuild is set only on the subprocess binary built by the E2E
+// test. Release builds leave it empty, and no runtime input can change it.
+var allowPrivateBuild string
+
 type App struct {
 	Stdin  io.Reader
 	Stdout io.Writer
@@ -32,6 +36,7 @@ type options struct {
 }
 
 func (application App) Run(ctx context.Context, args []string) int {
+	application.allowPrivate = application.allowPrivate || allowPrivateBuild == "e2e"
 	application.setDefaults()
 	if containsHelp(args) {
 		fmt.Fprint(application.Stdout, helpText)
