@@ -8,6 +8,9 @@ import {
   parseBuildMetadata,
 	parseRemoteAnnotatedTag,
   shouldPublishPackage,
+	validateBuildSource,
+	validateArtifactIntegrity,
+	validatePublishState,
   validateTargets,
 } from './release.ts';
 
@@ -43,9 +46,35 @@ package/moji: go1.25.0
 \tbuild\tCGO_ENABLED=0
 \tbuild\tGOARCH=arm64
 \tbuild\tGOOS=windows
+\tbuild\tvcs.revision=1111111111111111111111111111111111111111
+\tbuild\tvcs.modified=false
 `);
 
-  assert.deepEqual(metadata, { goos: 'windows', goarch: 'arm64' });
+	assert.deepEqual(metadata, {
+		goos: 'windows',
+		goarch: 'arm64',
+		revision: '1111111111111111111111111111111111111111',
+		modified: false,
+	});
+	assert.doesNotThrow(() => validateBuildSource(metadata, metadata.revision!));
+	assert.throws(() => validateBuildSource({ ...metadata, modified: true }, metadata.revision!), /local modifications/);
+	assert.throws(() => validateBuildSource(metadata, '2222222222222222222222222222222222222222'), /expected clean commit/);
+});
+
+test('requires release inputs and HEAD to remain unchanged after verification', () => {
+	const head = '1111111111111111111111111111111111111111';
+	assert.doesNotThrow(() => validatePublishState('', `${head}\n`, head));
+	assert.throws(() => validatePublishState(' M README.md\n', head, head), /release inputs changed/);
+	assert.throws(
+		() => validatePublishState('', '2222222222222222222222222222222222222222', head),
+		/HEAD changed during verification/,
+	);
+});
+
+test('rejects a release archive that changes after verification', () => {
+	const expected = archiveIntegrity(Buffer.from('verified'));
+	assert.doesNotThrow(() => validateArtifactIntegrity(expected, expected));
+	assert.throws(() => validateArtifactIntegrity(archiveIntegrity(Buffer.from('changed')), expected), /archive changed/);
 });
 
 test('resumes after npm publication only when the verified archive is identical', () => {

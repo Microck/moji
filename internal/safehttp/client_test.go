@@ -25,7 +25,7 @@ func TestPublicIPRejectsSpecialUseNetworks(t *testing.T) {
 	t.Parallel()
 	for _, address := range []string{
 		"100.64.0.1", "192.0.2.1", "198.18.0.1", "198.51.100.1", "203.0.113.1", "240.0.0.1",
-		"64:ff9b::1", "64:ff9b:1::1", "100::1", "2001::1", "2002::1", "3fff::1", "fec0::1",
+		"64:ff9b::1", "64:ff9b:1::1", "100::1", "2001::1", "2001:db8::1", "2002::1", "3fff::1", "fec0::1",
 	} {
 		if publicIP(net.ParseIP(address)) {
 			t.Errorf("special-use address %s was treated as public", address)

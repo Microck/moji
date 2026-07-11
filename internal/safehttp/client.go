@@ -22,6 +22,7 @@ var specialUsePrefixes = []netip.Prefix{
 	netip.MustParsePrefix("64:ff9b:1::/48"),
 	netip.MustParsePrefix("100::/64"),
 	netip.MustParsePrefix("2001::/23"),
+	netip.MustParsePrefix("2001:db8::/32"),
 	netip.MustParsePrefix("2002::/16"),
 	netip.MustParsePrefix("3fff::/20"),
 	netip.MustParsePrefix("fec0::/10"),

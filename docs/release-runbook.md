@@ -47,6 +47,7 @@ be annotated and point to the current commit. Existing GitHub release assets
 are downloaded and compared with the verified archive; a missing asset is
 uploaded, while different bytes stop the run.
 
-If a rebuilt binary differs from the committed copy, publishing stops. Commit
-the rebuilt artifacts and rerun the command so npm and GitHub describe the same
-source state.
+The generated binaries are intentionally ignored by Git. Before publishing,
+Moji reads the VCS metadata embedded by Go and requires every binary to identify
+the current clean commit. A stale binary, a different revision, or locally
+modified source stops the release before npm, tags, or GitHub are changed.

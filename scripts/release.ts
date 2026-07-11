@@ -14,7 +14,7 @@ const targets = [
   { directory: 'win32-arm64', executable: 'moji.exe', goos: 'windows', goarch: 'arm64' },
 ] as const;
 
-type BuildMetadata = { goos: string; goarch: string };
+type BuildMetadata = { goos: string; goarch: string; revision: string | null; modified: boolean | null };
 type PackageManifest = { name: string; version: string };
 type TagPreflight = { tag: string; head: string; remote: 'missing' | 'matching'; localTarget: string | null };
 type ReleasePreflight = 'missing-release' | 'missing-asset' | 'matching';
@@ -56,12 +56,37 @@ export function binaryContainsExactVersion(binary: Buffer, version: string): boo
 export function parseBuildMetadata(output: string): BuildMetadata {
   const goos = output.match(/^\s*build\s+GOOS=(\S+)$/m)?.[1];
   const goarch = output.match(/^\s*build\s+GOARCH=(\S+)$/m)?.[1];
+	const revision = output.match(/^\s*build\s+vcs\.revision=(\S+)$/m)?.[1] ?? null;
+	const modifiedValue = output.match(/^\s*build\s+vcs\.modified=(true|false)$/m)?.[1];
   if (!goos || !goarch) throw new Error('native binary is missing GOOS/GOARCH build metadata');
-  return { goos, goarch };
+	return { goos, goarch, revision, modified: modifiedValue === undefined ? null : modifiedValue === 'true' };
+}
+
+export function validateBuildSource(metadata: BuildMetadata, expectedRevision: string): void {
+	if (metadata.revision !== expectedRevision || metadata.modified !== false) {
+		throw new Error(
+			`native binary source is ${metadata.revision ?? 'unknown'}${metadata.modified ? ' with local modifications' : ''}; expected clean commit ${expectedRevision}`,
+		);
+	}
+}
+
+export function validatePublishState(status: string, currentHead: string, expectedHead: string): void {
+	if (status.trim()) throw new Error('release inputs changed during verification; commit them and run the release again');
+	if (currentHead.trim() !== expectedHead) {
+		throw new Error(`HEAD changed during verification; expected ${expectedHead}, found ${currentHead.trim()}`);
+	}
 }
 
 export function archiveIntegrity(content: Buffer): string {
   return `sha512-${createHash('sha512').update(content).digest('base64')}`;
+}
+
+export function validateArtifactIntegrity(actual: string, expected: string): void {
+	if (actual !== expected) throw new Error('verified release archive changed before publication');
+}
+
+async function assertArchiveUnchanged(archive: string, expectedIntegrity: string): Promise<void> {
+	validateArtifactIntegrity(archiveIntegrity(await readFile(archive)), expectedIntegrity);
 }
 
 export function shouldPublishPackage(existingIntegrity: string | null, localIntegrity: string): boolean {
@@ -118,7 +143,12 @@ async function readManifest(path: string): Promise<PackageManifest> {
   return manifest as PackageManifest;
 }
 
-async function verifyArchive(archive: string, extractionRoot: string, expected: PackageManifest): Promise<void> {
+async function verifyArchive(
+	archive: string,
+	extractionRoot: string,
+	expected: PackageManifest,
+	expectedRevision: string | null,
+): Promise<void> {
   await run('tar', ['-xzf', archive, '-C', extractionRoot]);
   const packageRoot = join(extractionRoot, 'package');
   const packed = await readManifest(join(packageRoot, 'package.json'));
@@ -143,6 +173,7 @@ async function verifyArchive(archive: string, extractionRoot: string, expected: 
         `${target.directory} contains ${metadata.goos}/${metadata.goarch}; expected ${target.goos}/${target.goarch}`,
       );
     }
+		if (expectedRevision !== null) validateBuildSource(metadata, expectedRevision);
   }
 
   const launcherVersion = (
@@ -153,12 +184,19 @@ async function verifyArchive(archive: string, extractionRoot: string, expected: 
   }
 }
 
-async function assertPublishPreconditions(): Promise<void> {
+async function assertPublishPreconditions(): Promise<string> {
   const status = await run('git', ['status', '--porcelain'], { capture: true });
   if (status.trim()) throw new Error('refusing to publish from a dirty worktree; commit the verified release first');
 
 	await run('npm', ['whoami'], { capture: true });
 	await run('gh', ['auth', 'status']);
+	return (await run('git', ['rev-parse', 'HEAD'], { capture: true })).trim();
+}
+
+async function assertPublishStateUnchanged(expectedHead: string): Promise<void> {
+	const status = await run('git', ['status', '--porcelain'], { capture: true });
+	const currentHead = await run('git', ['rev-parse', 'HEAD'], { capture: true });
+	validatePublishState(status, currentHead, expectedHead);
 }
 
 async function registryIntegrity(name: string, version: string): Promise<string | null> {
@@ -174,9 +212,10 @@ async function registryIntegrity(name: string, version: string): Promise<string 
 	return manifest.dist.integrity;
 }
 
-async function inspectAnnotatedTag(version: string): Promise<TagPreflight> {
+async function inspectAnnotatedTag(version: string, expectedHead: string): Promise<TagPreflight> {
 	const tag = `v${version}`;
 	const head = (await run('git', ['rev-parse', 'HEAD'], { capture: true })).trim();
+	validatePublishState('', head, expectedHead);
 	const remoteTags = await run('git', ['ls-remote', '--tags', 'origin', `refs/tags/${tag}`, `refs/tags/${tag}^{}`], {
 		capture: true,
 	});
@@ -203,13 +242,18 @@ async function ensureAnnotatedTag(preflight: TagPreflight): Promise<string> {
 		return preflight.tag;
 	}
 	if (preflight.localTarget === null) {
-		await run('git', ['tag', '-a', preflight.tag, '-m', `Moji ${preflight.tag}`]);
+		await run('git', ['tag', '-a', preflight.tag, preflight.head, '-m', `Moji ${preflight.tag}`]);
 	}
 	await run('git', ['push', 'origin', preflight.tag]);
 	return preflight.tag;
 }
 
-async function inspectGitHubRelease(tag: string, archive: string, temporaryRoot: string): Promise<ReleasePreflight> {
+async function inspectGitHubRelease(
+	tag: string,
+	archive: string,
+	temporaryRoot: string,
+	expectedIntegrity: string,
+): Promise<ReleasePreflight> {
 	let release: { assets?: Array<{ name?: string }> } | null = null;
 	try {
 		release = JSON.parse(await run('gh', ['release', 'view', tag, '--json', 'assets'], { capture: true, captureStderr: true })) as {
@@ -222,17 +266,23 @@ async function inspectGitHubRelease(tag: string, archive: string, temporaryRoot:
 	const archiveName = basename(archive);
 	if (!release.assets?.some(({ name }) => name === archiveName)) return 'missing-asset';
 	const downloadRoot = join(temporaryRoot, 'github-release-asset');
+	await rm(downloadRoot, { recursive: true, force: true });
 	await mkdir(downloadRoot);
 	await run('gh', ['release', 'download', tag, '--pattern', archiveName, '--dir', downloadRoot]);
 	const existingIntegrity = archiveIntegrity(await readFile(join(downloadRoot, archiveName)));
-	const localIntegrity = archiveIntegrity(await readFile(archive));
-	if (existingIntegrity !== localIntegrity) {
+	if (existingIntegrity !== expectedIntegrity) {
 		throw new Error(`GitHub release ${tag} contains ${archiveName} with different archive bytes`);
 	}
 	return 'matching';
 }
 
-async function ensureGitHubRelease(preflight: ReleasePreflight, tag: string, archive: string): Promise<void> {
+async function ensureGitHubRelease(
+	preflight: ReleasePreflight,
+	tag: string,
+	archive: string,
+	expectedIntegrity: string,
+): Promise<void> {
+	await assertArchiveUnchanged(archive, expectedIntegrity);
 	if (preflight === 'missing-release') {
 		await run('gh', [
 			'release',
@@ -262,7 +312,7 @@ async function main(): Promise<void> {
   const projectRoot = resolve(fileURLToPath(new URL('..', import.meta.url)));
   process.chdir(projectRoot);
   const manifest = await readManifest(join(projectRoot, 'package.json'));
-	if (publish) await assertPublishPreconditions();
+	const publishHead = publish ? await assertPublishPreconditions() : null;
 
   const temporaryRoot = await mkdtemp(join(tmpdir(), 'moji-release-'));
   try {
@@ -277,32 +327,32 @@ async function main(): Promise<void> {
     const archive = join(packRoot, archives[0]);
     const extractionRoot = join(temporaryRoot, 'extract');
     await mkdir(extractionRoot);
-    await verifyArchive(archive, extractionRoot, manifest);
+    await verifyArchive(archive, extractionRoot, manifest, publishHead);
     console.log(`Verified ${basename(archive)} with all 6 native binaries at version ${manifest.version}.`);
 
     if (!publish) {
       console.log('Verification complete. No package, tag, or GitHub release was published.');
       return;
     }
-
-    // Rebuilding must not change tracked release artifacts. The npm package and
-    // GitHub tag therefore describe the exact same committed source and binaries.
-    const rebuiltChanges = await run('git', ['status', '--porcelain', '--', 'binaries'], { capture: true });
-    if (rebuiltChanges.trim()) {
-      throw new Error('rebuilt binaries differ from the commit; commit them and run the release again');
-    }
+		await assertPublishStateUnchanged(publishHead);
 
 		const localIntegrity = archiveIntegrity(await readFile(archive));
 		const existingIntegrity = await registryIntegrity(manifest.name, manifest.version);
-		const tagPreflight = await inspectAnnotatedTag(manifest.version);
-		const releasePreflight = await inspectGitHubRelease(tagPreflight.tag, archive, temporaryRoot);
+		const tagPreflight = await inspectAnnotatedTag(manifest.version, publishHead);
+		const releasePreflight = await inspectGitHubRelease(tagPreflight.tag, archive, temporaryRoot, localIntegrity);
+		await assertPublishStateUnchanged(publishHead);
 		if (shouldPublishPackage(existingIntegrity, localIntegrity)) {
+			await assertArchiveUnchanged(archive, localIntegrity);
 			await run('npm', ['publish', archive, '--access', 'public', '--ignore-scripts=false']);
 		} else {
 			console.log(`${manifest.name}@${manifest.version} already contains the verified archive; resuming publication.`);
 		}
+		validateArtifactIntegrity((await registryIntegrity(manifest.name, manifest.version)) ?? '', localIntegrity);
 		const tag = await ensureAnnotatedTag(tagPreflight);
-		await ensureGitHubRelease(releasePreflight, tag, archive);
+		await ensureGitHubRelease(releasePreflight, tag, archive, localIntegrity);
+		if ((await inspectGitHubRelease(tag, archive, temporaryRoot, localIntegrity)) !== 'matching') {
+			throw new Error(`GitHub release ${tag} did not retain the verified archive`);
+		}
     console.log(`Published ${manifest.name}@${manifest.version} and GitHub release ${tag}.`);
   } finally {
     await rm(temporaryRoot, { recursive: true, force: true });
