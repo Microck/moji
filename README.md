@@ -1,19 +1,9 @@
 <div align="center">
 
-```text
-   ∧＿∧
-  （ ´∀｀）  文字  moji
-  （       ）
-   |  |  |
-  （_＿）＿）
-```
-
-<h1>moji</h1>
-
-<p>find and safely download fonts without leaving the terminal.</p>
+<img src=".github/assets/moji-logo.svg" alt="moji" width="720">
 
 <p>
-  <img src="https://img.shields.io/npm/v/@microck/moji?style=flat-square&color=000000" alt="npm version badge">
+  <a href="https://github.com/Microck/moji/releases"><img src="https://img.shields.io/github/v/release/Microck/moji?display_name=tag&style=flat-square&label=release&color=000000" alt="release badge"></a>
   <img src="https://img.shields.io/npm/dt/@microck/moji?style=flat-square&color=000000" alt="npm total downloads badge">
   <img src="https://img.shields.io/badge/platform-linux%20%7C%20macos%20%7C%20windows-000000?style=flat-square" alt="platform badge">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-000000?style=flat-square" alt="MIT license badge"></a>
@@ -21,13 +11,12 @@
 
 </div>
 
-`moji` searches multiple font sources, ranks files by family and filename, and
-downloads the match you actually asked for. use the Bubble Tea interface when
-working interactively, a stable table in pipelines, or JSON when another tool
-needs to consume the results.
+---
 
-the npm package includes native binaries for linux, macOS, and windows on x64
-and arm64. installing Go is not required.
+ask for a font and get the file you actually meant. `moji` searches across font
+sources, ranks candidates by family and filename, and downloads the best match.
+browse interactively with Bubble Tea, pipe a stable table into shell workflows,
+or request JSON for programmatic use.
 
 ## quick start
 
