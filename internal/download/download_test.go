@@ -253,3 +253,30 @@ func TestMoveNoReplacePreservesConcurrentDestination(t *testing.T) {
 		t.Fatalf("destination=%q err=%v", content, err)
 	}
 }
+
+func TestCommitBatchMovesRollsBackAfterLaterCollision(t *testing.T) {
+	t.Parallel()
+	directory := t.TempDir()
+	firstSource := filepath.Join(directory, "first-source.otf")
+	secondSource := filepath.Join(directory, "second-source.otf")
+	firstDestination := filepath.Join(directory, "first.otf")
+	secondDestination := filepath.Join(directory, "second.otf")
+	for path, content := range map[string]string{
+		firstSource: "first", secondSource: "second", secondDestination: "concurrent",
+	} {
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	err := commitBatchMoves([]batchMove{{from: firstSource, to: firstDestination}, {from: secondSource, to: secondDestination}})
+	if err == nil {
+		t.Fatal("expected second move collision")
+	}
+	if _, statErr := os.Stat(firstDestination); !os.IsNotExist(statErr) {
+		t.Fatalf("first family file was not rolled back: %v", statErr)
+	}
+	content, readErr := os.ReadFile(secondDestination)
+	if readErr != nil || string(content) != "concurrent" {
+		t.Fatalf("concurrent file=%q err=%v", content, readErr)
+	}
+}

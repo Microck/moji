@@ -218,7 +218,13 @@ func TestRunGetFamilyFallsBackAsACompleteSameSourceGroup(t *testing.T) {
 		}
 	}
 	entries, err := os.ReadDir(destination)
-	if err != nil || len(entries) != 2 {
+	visible := 0
+	for _, entry := range entries {
+		if !strings.HasPrefix(entry.Name(), ".moji-") {
+			visible++
+		}
+	}
+	if err != nil || visible != 2 {
 		t.Fatalf("family destination contains partial or staging files: entries=%v err=%v", entries, err)
 	}
 }

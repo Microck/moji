@@ -33,6 +33,11 @@ type File struct {
 	Existing bool
 }
 
+type batchMove struct {
+	from string
+	to   string
+}
+
 // InvalidContentError marks a URL that returned bytes which cannot be the
 // advertised font. Callers may remember this failure without treating network
 // or local filesystem errors as permanent URL failures.
@@ -206,10 +211,14 @@ func (d Downloader) DownloadBatch(ctx context.Context, results []provider.Result
 			staged = append(staged, file)
 		}
 	}
+	release, err := lockDownloadDirectory(destination)
+	if err != nil {
+		return nil, fmt.Errorf("Moji couldn't lock %s for a family download: %w. No family files were saved", destination, err)
+	}
+	defer release()
 
 	files := make([]File, len(staged))
-	type move struct{ from, to string }
-	moves := make([]move, 0, len(staged))
+	moves := make([]batchMove, 0, len(staged))
 	for index, file := range staged {
 		finalPath := filepath.Join(destination, filepath.Base(file.Path))
 		if duplicatePath, found, findErr := findDuplicate(destination, file.SHA256); findErr != nil {
@@ -229,15 +238,49 @@ func (d Downloader) DownloadBatch(ctx context.Context, results []provider.Result
 			return nil, fmt.Errorf("Moji couldn't inspect %s: %w. No family files were saved", finalPath, readErr)
 		}
 		files[index] = File{Path: finalPath, SHA256: file.SHA256}
-		moves = append(moves, move{from: file.Path, to: finalPath})
+		moves = append(moves, batchMove{from: file.Path, to: finalPath})
 	}
 
-	for index, operation := range moves {
-		if moveErr := moveNoReplace(operation.from, operation.to); moveErr != nil {
-			return nil, fmt.Errorf("Moji couldn't finish the family download at %s without overwriting a concurrent file: %w. %d validated family files were already saved and were left untouched", operation.to, moveErr, index)
-		}
+	if err := commitBatchMoves(moves); err != nil {
+		return nil, err
 	}
 	return files, nil
+}
+
+func commitBatchMoves(moves []batchMove) error {
+	type committedMove struct {
+		batchMove
+		identity os.FileInfo
+	}
+	committed := make([]committedMove, 0, len(moves))
+	for _, operation := range moves {
+		if err := moveNoReplace(operation.from, operation.to); err != nil {
+			rollbackFailures := make([]error, 0)
+			for index := len(committed) - 1; index >= 0; index-- {
+				current, statErr := os.Stat(committed[index].to)
+				if errors.Is(statErr, os.ErrNotExist) {
+					continue
+				}
+				if statErr != nil || !os.SameFile(committed[index].identity, current) {
+					rollbackFailures = append(rollbackFailures, fmt.Errorf("%s changed before rollback", committed[index].to))
+					continue
+				}
+				if removeErr := os.Remove(committed[index].to); removeErr != nil {
+					rollbackFailures = append(rollbackFailures, fmt.Errorf("remove %s: %w", committed[index].to, removeErr))
+				}
+			}
+			if len(rollbackFailures) > 0 {
+				return fmt.Errorf("Moji couldn't finish the family download at %s without overwriting a concurrent file: %w. Rollback was incomplete: %v", operation.to, err, errors.Join(rollbackFailures...))
+			}
+			return fmt.Errorf("Moji couldn't finish the family download at %s without overwriting a concurrent file: %w. Earlier family moves were rolled back", operation.to, err)
+		}
+		identity, statErr := os.Stat(operation.to)
+		if statErr != nil {
+			return fmt.Errorf("Moji couldn't verify the committed family file %s: %w", operation.to, statErr)
+		}
+		committed = append(committed, committedMove{batchMove: operation, identity: identity})
+	}
+	return nil
 }
 
 func findDuplicate(directory, digest string) (string, bool, error) {
@@ -246,7 +289,7 @@ func findDuplicate(directory, digest string) (string, bool, error) {
 		return "", false, err
 	}
 	for _, entry := range entries {
-		if entry.IsDir() || strings.HasSuffix(entry.Name(), ".tmp") {
+		if entry.IsDir() || strings.HasSuffix(entry.Name(), ".tmp") || strings.HasPrefix(entry.Name(), ".moji-") {
 			continue
 		}
 		path := filepath.Join(directory, entry.Name())
