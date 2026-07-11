@@ -89,6 +89,7 @@ func (application App) searchEvents(ctx context.Context, current config.Config, 
 		cached = append(cached, cache.CachedProvider{Source: source, Store: store, Bypass: parsed.noCache})
 	}
 	searchCtx, cancel := context.WithTimeout(ctx, time.Duration(current.SearchTimeoutSeconds)*time.Second)
+	searchCtx = provider.WithSearchCycle(searchCtx)
 	aggregate := aggregator.Aggregator{Providers: cached, Policies: current.Policies()}
 	events := make(chan provider.Event)
 	go func() {

@@ -1,8 +1,10 @@
 package cache
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -10,6 +12,27 @@ import (
 
 	"github.com/microck/moji/internal/provider"
 )
+
+type skippedProvider struct{}
+
+func (skippedProvider) Name() string { return "skipped" }
+func (skippedProvider) Search(context.Context, string, []string, chan<- provider.Event) error {
+	return provider.ErrSearchSkipped
+}
+
+func TestCachedProviderDoesNotCacheSkippedSearch(t *testing.T) {
+	t.Parallel()
+	store := Store{Directory: t.TempDir(), TTL: time.Hour}
+	cached := CachedProvider{Source: skippedProvider{}, Store: store}
+	err := cached.Search(context.Background(), "ProximaNova", []string{"ttf"}, make(chan provider.Event, 1))
+	if !errors.Is(err, provider.ErrSearchSkipped) {
+		t.Fatalf("search error = %v, want skipped signal", err)
+	}
+	_, hit, getErr := store.Get("ProximaNova", "skipped", []string{"ttf"})
+	if getErr != nil || hit {
+		t.Fatalf("cache hit = %v, error = %v; skipped search must not be cached", hit, getErr)
+	}
+}
 
 func TestStoreHonorsTTLAndFormatIndependentOrder(t *testing.T) {
 	t.Parallel()
