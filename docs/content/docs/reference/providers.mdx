@@ -20,7 +20,7 @@ GetFonts is the zero-configuration default.
 - Default: enabled
 - Authentication: optional; required for Code Search
 - Token sources: `GITHUB_TOKEN`, config, or `--token-stdin`
-- Queries: one filename-variant request, then at most one broad extension fallback
+- Queries: adaptive filename and contextual variants within GitHub's remaining allowance
 - Result trust: untrusted
 
 GitHub's general unauthenticated REST allowance does not unlock Code Search;
@@ -29,12 +29,21 @@ Moji skips that guaranteed failure and uses its bounded repository, tree, and
 release search. The TUI home screen explains that `GITHUB_TOKEN` enables code
 search and higher limits.
 
-The filename request covers compact, hyphenated, underscored, lowercase, and
-quoted exact-extension forms. Selected formats are still validated locally.
-When both code queries miss, Moji inspects at most two matching repositories.
-For each repository it reads one recursive tree and up to three releases. Tree
-files use raw GitHub URLs; release results must be direct font or supported
-archive assets.
+Code Search generates literal TTF and OTF filenames, space, hyphen, underscore,
+and compact filename conventions, then broader contextual forms. Moji reads
+GitHub's remaining Code Search allowance after every response, uses as many
+variants as the current allowance permits, and stops before making a guaranteed
+rate-limited request. Repository-tree matching normalizes the same conventions.
+GitHub's REST endpoint does not support
+the website's combined `extension:` and `filename:` recipe, so Moji uses these
+bounded REST-compatible queries instead. Multiple queries are needed because a
+candidate URL is not known to contain valid font bytes until download validation.
+Duplicate direct URLs are discarded. CSS, documentation, and source matches seed at most
+three recursive repository tree reads. Full paths are matched locally using
+normalized family names and bounded foundry abbreviations such as `Premr` for
+`Premier`. Adaptive query spellings share this Code Search budget. If contextual trees miss,
+Moji inspects at most two repositories from repository search. Tree files use
+raw GitHub URLs; release results must be direct font or supported archive assets.
 
 ## Registry
 

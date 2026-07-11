@@ -9,15 +9,21 @@ import (
 	"net/http"
 	"net/url"
 	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 )
 
 const maxGitHubResponseSize int64 = 20 << 20
 
 const maxGitHubTreeResults = 500
+
+const maxGitHubContextRepositories = 3
+
+const maxGitHubDirectRepositories = 1
+
+const maxGitHubCodeQueries = 10
 
 type GitHub struct {
 	Client   *http.Client
@@ -46,12 +52,25 @@ type githubRepositorySearchResponse struct {
 	} `json:"items"`
 }
 
+type githubRepository struct {
+	FullName      string
+	DefaultBranch string
+	HintPath      string
+}
+
 type githubTreeResponse struct {
-	Tree []struct {
+	Truncated bool `json:"truncated"`
+	Tree      []struct {
 		Path string `json:"path"`
 		Type string `json:"type"`
 		Size int64  `json:"size"`
 	} `json:"tree"`
+}
+
+type githubContentItem struct {
+	Path string `json:"path"`
+	Type string `json:"type"`
+	Size int64  `json:"size"`
 }
 
 type githubRelease struct {
@@ -63,6 +82,9 @@ type githubRelease struct {
 }
 
 func (source GitHub) Search(ctx context.Context, query string, formats []string, out chan<- Event) error {
+	if !claimGitHubSearch(ctx, query) {
+		return ErrSearchSkipped
+	}
 	client := source.Client
 	if client == nil {
 		client = http.DefaultClient
@@ -79,11 +101,15 @@ func (source GitHub) Search(ctx context.Context, query string, formats []string,
 	// releases retain a small unauthenticated allowance, so tokenless users skip
 	// directly to that bounded fallback instead of making a guaranteed 401 call.
 	useCodeSearch := source.Token != "" || source.Endpoint != ""
+	totalEmitted := 0
+	seenDirectURLs := make(map[string]bool)
+	inspectedRepositories := make(map[string]bool)
+	directRepositoryInspections := 0
 	for _, searchQuery := range githubSearchQueries(query, formats) {
 		if !useCodeSearch {
 			break
 		}
-		payload, err := source.search(ctx, client, endpoint, searchQuery, out)
+		payload, remaining, err := source.search(ctx, client, endpoint, searchQuery, out)
 		if err != nil {
 			return err
 		}
@@ -98,6 +124,10 @@ func (source GitHub) Search(ctx context.Context, query string, formats []string,
 				branch = branchFromHTMLURL(item.HTMLURL)
 			}
 			rawURL := githubRepositoryRawURL(item.Repository.FullName, branch, item.Path)
+			if seenDirectURLs[rawURL] {
+				continue
+			}
+			seenDirectURLs[rawURL] = true
 			out <- Event{Type: EventResult, Result: Result{
 				Name: query, Filename: filepath.Base(item.Name), Format: format,
 				Source: "github.com/" + item.Repository.FullName, URL: rawURL,
@@ -105,11 +135,228 @@ func (source GitHub) Search(ctx context.Context, query string, formats []string,
 			}}
 			emitted++
 		}
-		if emitted > 0 {
-			return nil
+		totalEmitted += emitted
+		candidates := githubCandidateRepositories(payload)
+		repositories := make([]githubRepository, 0, len(candidates))
+		for _, repository := range candidates {
+			if len(inspectedRepositories) >= maxGitHubContextRepositories {
+				break
+			}
+			if inspectedRepositories[repository.FullName] {
+				continue
+			}
+			format := strings.TrimPrefix(strings.ToLower(filepath.Ext(repository.HintPath)), ".")
+			isDirectRepository := githubFontExtension(format)
+			if isDirectRepository && directRepositoryInspections >= maxGitHubDirectRepositories {
+				continue
+			}
+			if isDirectRepository {
+				directRepositoryInspections++
+			}
+			inspectedRepositories[repository.FullName] = true
+			repositories = append(repositories, repository)
+		}
+		if len(repositories) > 0 {
+			emitted, inspectErr := source.inspectRepositoryTrees(ctx, client, endpoint, repositories, query, allowed, seenDirectURLs, out)
+			if inspectErr != nil {
+				return inspectErr
+			}
+			if emitted > 0 {
+				return nil
+			}
+		}
+		if remaining == 0 {
+			break
 		}
 	}
+	if totalEmitted > 0 {
+		return nil
+	}
 	return source.searchRepositories(ctx, client, endpoint, query, allowed, out)
+}
+
+func githubCandidateRepositories(payload githubSearchResponse) []githubRepository {
+	seen := make(map[string]bool)
+	repositories := make([]githubRepository, 0, maxGitHubContextRepositories)
+	for _, includeFonts := range []bool{false, true} {
+		for _, item := range payload.Items {
+			format := strings.TrimPrefix(strings.ToLower(filepath.Ext(item.Name)), ".")
+			if githubFontExtension(format) != includeFonts {
+				continue
+			}
+			name := item.Repository.FullName
+			if name == "" || seen[name] {
+				continue
+			}
+			seen[name] = true
+			repositories = append(repositories, githubRepository{FullName: name, DefaultBranch: item.Repository.DefaultBranch, HintPath: item.Path})
+			if len(repositories) == maxGitHubContextRepositories {
+				return repositories
+			}
+		}
+	}
+	return repositories
+}
+
+func githubFontExtension(format string) bool {
+	switch format {
+	case "ttf", "otf", "woff2", "woff", "dfont", "pfb", "pfm":
+		return true
+	default:
+		return false
+	}
+}
+
+func (source GitHub) inspectRepositoryTrees(ctx context.Context, client *http.Client, codeEndpoint string, repositories []githubRepository, query string, allowed map[string]bool, seenResultURLs map[string]bool, out chan<- Event) (int, error) {
+	base, err := url.Parse(codeEndpoint)
+	if err != nil {
+		return 0, err
+	}
+	base.Path = strings.TrimSuffix(base.Path, "/search/code")
+	emitted := 0
+	for _, repository := range repositories {
+		if emitted >= maxGitHubTreeResults {
+			return emitted, nil
+		}
+		branch := repository.DefaultBranch
+		if branch == "" {
+			branch = "HEAD"
+		}
+		apiRoot := strings.TrimRight(base.String(), "/") + "/repos/" + repository.FullName
+		var tree githubTreeResponse
+		treeErr := source.getJSON(ctx, client, apiRoot+"/git/trees/"+url.PathEscape(branch), url.Values{"recursive": {"1"}}, &tree, out)
+		if stopGitHubFallback(treeErr) {
+			return emitted, treeErr
+		}
+		if treeErr != nil {
+			continue
+		}
+		seenPaths := make(map[string]bool)
+		for _, item := range tree.Tree {
+			format := strings.TrimPrefix(strings.ToLower(filepath.Ext(item.Path)), ".")
+			if item.Type != "blob" || !allowed[format] || !githubPathMatchesQuery(item.Path, query) {
+				continue
+			}
+			rawURL := githubRepositoryRawURL(repository.FullName, branch, item.Path)
+			seenPaths[item.Path] = true
+			if seenResultURLs[rawURL] {
+				continue
+			}
+			seenResultURLs[rawURL] = true
+			out <- Event{Type: EventResult, Result: Result{
+				Name: query, Filename: filepath.Base(item.Path), Format: format, SizeBytes: item.Size,
+				Source: "github.com/" + repository.FullName,
+				URL:    rawURL, Trusted: false, License: "unknown",
+			}}
+			emitted++
+			if emitted >= maxGitHubTreeResults {
+				return emitted, nil
+			}
+		}
+		if tree.Truncated {
+			repository.DefaultBranch = branch
+			contentCount, contentErr := source.inspectRepositoryDirectory(ctx, client, base.String(), repository, query, allowed, seenPaths, seenResultURLs, maxGitHubTreeResults-emitted, out)
+			if stopGitHubFallback(contentErr) {
+				return emitted, contentErr
+			}
+			emitted += contentCount
+		}
+	}
+	return emitted, nil
+}
+
+func (source GitHub) inspectRepositoryDirectory(ctx context.Context, client *http.Client, apiBase string, repository githubRepository, query string, allowed map[string]bool, seenPaths, seenResultURLs map[string]bool, limit int, out chan<- Event) (int, error) {
+	if limit <= 0 {
+		return 0, nil
+	}
+	directory := filepath.ToSlash(filepath.Dir(repository.HintPath))
+	if directory == "." {
+		directory = ""
+	}
+	branch := repository.DefaultBranch
+	if branch == "" {
+		branch = "HEAD"
+	}
+	endpoint := strings.TrimRight(apiBase, "/") + "/repos/" + githubEscapePath(repository.FullName) + "/contents"
+	if directory != "" {
+		endpoint += "/" + githubEscapePath(strings.TrimLeft(directory, "/"))
+	}
+	var items []githubContentItem
+	if err := source.getJSON(ctx, client, endpoint, url.Values{"ref": {branch}}, &items, out); err != nil {
+		return 0, err
+	}
+	emitted := 0
+	for _, item := range items {
+		format := strings.TrimPrefix(strings.ToLower(filepath.Ext(item.Path)), ".")
+		if item.Type != "file" || seenPaths[item.Path] || !allowed[format] || !githubPathMatchesQuery(item.Path, query) {
+			continue
+		}
+		rawURL := githubRepositoryRawURL(repository.FullName, branch, item.Path)
+		if seenResultURLs != nil && seenResultURLs[rawURL] {
+			continue
+		}
+		if seenResultURLs != nil {
+			seenResultURLs[rawURL] = true
+		}
+		out <- Event{Type: EventResult, Result: Result{
+			Name: query, Filename: filepath.Base(item.Path), Format: format, SizeBytes: item.Size,
+			Source: "github.com/" + repository.FullName,
+			URL:    rawURL, Trusted: false, License: "unknown",
+		}}
+		emitted++
+		if emitted >= limit {
+			break
+		}
+	}
+	return emitted, nil
+}
+
+func githubEscapePath(value string) string {
+	parts := strings.Split(value, "/")
+	for index := range parts {
+		parts[index] = url.PathEscape(parts[index])
+	}
+	return strings.Join(parts, "/")
+}
+
+func githubPathMatchesQuery(pathValue, query string) bool {
+	compactPath := githubCompact(pathValue)
+	words := strings.FieldsFunc(strings.ToLower(query), func(character rune) bool {
+		return !unicode.IsLetter(character) && !unicode.IsNumber(character)
+	})
+	aliases := map[string][]string{
+		"premier": {"premr"}, "regular": {"reg", "rg"}, "bold": {"bd"},
+		"italic": {"it"}, "condensed": {"cond", "cn"}, "narrow": {"nr"}, "light": {"lt"},
+	}
+	variants := []string{""}
+	for _, word := range words {
+		options := append([]string{word}, aliases[word]...)
+		next := make([]string, 0, min(32, len(variants)*len(options)))
+		for _, prefix := range variants {
+			for _, option := range options {
+				if len(next) == 32 {
+					break
+				}
+				next = append(next, prefix+option)
+			}
+		}
+		variants = next
+	}
+	for _, variant := range variants {
+		if variant != "" && strings.Contains(compactPath, variant) {
+			return true
+		}
+	}
+	return false
+}
+
+func githubCompact(value string) string {
+	return strings.Map(func(character rune) rune {
+		if unicode.IsLetter(character) || unicode.IsNumber(character) {
+			return unicode.ToLower(character)
+		}
+		return -1
+	}, value)
 }
 
 func (source GitHub) searchRepositories(ctx context.Context, client *http.Client, codeEndpoint, query string, allowed map[string]bool, out chan<- Event) error {
@@ -134,11 +381,12 @@ func (source GitHub) searchRepositories(ctx context.Context, client *http.Client
 		if stopGitHubFallback(treeErr) {
 			return treeErr
 		}
+		emittedFromTree := 0
+		seenPaths := make(map[string]bool)
 		if treeErr == nil {
-			emittedFromTree := 0
 			for _, item := range tree.Tree {
 				format := strings.TrimPrefix(strings.ToLower(filepath.Ext(item.Path)), ".")
-				if item.Type != "blob" || !allowed[format] {
+				if item.Type != "blob" || !allowed[format] || !githubPathMatchesQuery(item.Path, query) {
 					continue
 				}
 				out <- Event{Type: EventResult, Result: Result{
@@ -147,10 +395,20 @@ func (source GitHub) searchRepositories(ctx context.Context, client *http.Client
 					URL:     githubRepositoryRawURL(repository.FullName, branch, item.Path),
 					Trusted: false, License: "unknown",
 				}}
+				seenPaths[item.Path] = true
 				emittedFromTree++
 				if emittedFromTree >= maxGitHubTreeResults {
 					break
 				}
+			}
+			if tree.Truncated {
+				contentCount, contentErr := source.inspectRepositoryDirectory(ctx, client, base.String(), githubRepository{
+					FullName: repository.FullName, DefaultBranch: branch,
+				}, query, allowed, seenPaths, nil, maxGitHubTreeResults-emittedFromTree, out)
+				if stopGitHubFallback(contentErr) {
+					return contentErr
+				}
+				emittedFromTree += contentCount
 			}
 		}
 		var releases []githubRelease
@@ -241,11 +499,11 @@ func decodeGitHubJSON(reader io.Reader, destination any) error {
 	return json.Unmarshal(content, destination)
 }
 
-func (source GitHub) search(ctx context.Context, client *http.Client, endpoint, query string, out chan<- Event) (githubSearchResponse, error) {
+func (source GitHub) search(ctx context.Context, client *http.Client, endpoint, query string, out chan<- Event) (githubSearchResponse, int, error) {
 	parameters := url.Values{"q": {query}, "per_page": {"100"}}
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint+"?"+parameters.Encode(), nil)
 	if err != nil {
-		return githubSearchResponse{}, err
+		return githubSearchResponse{}, -1, err
 	}
 	request.Header.Set("Accept", "application/vnd.github+json")
 	request.Header.Set("X-GitHub-Api-Version", "2022-11-28")
@@ -255,76 +513,83 @@ func (source GitHub) search(ctx context.Context, client *http.Client, endpoint, 
 	}
 	response, err := client.Do(request)
 	if err != nil {
-		return githubSearchResponse{}, fmt.Errorf("%w: github request: %v", ErrUnavailable, err)
+		return githubSearchResponse{}, -1, fmt.Errorf("%w: github request: %v", ErrUnavailable, err)
 	}
 	defer response.Body.Close()
 	if response.StatusCode == http.StatusTooManyRequests ||
 		(response.StatusCode == http.StatusForbidden && response.Header.Get("X-RateLimit-Remaining") == "0") {
 		retryAfter := githubRetryAfter(response.Header, time.Now())
 		out <- Event{Type: EventStatus, Status: StateThrottled, Err: ErrRateLimited, RetryAfter: retryAfter}
-		return githubSearchResponse{}, ErrRateLimited
+		return githubSearchResponse{}, 0, ErrRateLimited
 	}
 	if response.StatusCode >= 400 && response.StatusCode < 500 {
-		return githubSearchResponse{}, fmt.Errorf("%w: github returned HTTP %d", ErrNonRetryable, response.StatusCode)
+		return githubSearchResponse{}, -1, fmt.Errorf("%w: github returned HTTP %d", ErrNonRetryable, response.StatusCode)
 	}
 	if response.StatusCode != http.StatusOK {
-		return githubSearchResponse{}, fmt.Errorf("%w: github returned HTTP %d", ErrBadResponse, response.StatusCode)
+		return githubSearchResponse{}, -1, fmt.Errorf("%w: github returned HTTP %d", ErrBadResponse, response.StatusCode)
 	}
 	var payload githubSearchResponse
 	if err := decodeGitHubJSON(response.Body, &payload); err != nil {
-		return githubSearchResponse{}, fmt.Errorf("%w: decode github response: %v", ErrBadResponse, err)
+		return githubSearchResponse{}, -1, fmt.Errorf("%w: decode github response: %v", ErrBadResponse, err)
 	}
-	return payload, nil
+	remaining := -1
+	if value, parseErr := strconv.Atoi(response.Header.Get("X-RateLimit-Remaining")); parseErr == nil {
+		remaining = value
+	}
+	return payload, remaining, nil
 }
 
 func githubSearchQueries(query string, formats []string) []string {
-	words := strings.Fields(query)
-	variants := []string{
-		strings.Join(words, ""),
-		strings.Join(words, "-"),
-		strings.Join(words, "_"),
-		strings.ToLower(strings.Join(words, "")),
-	}
-	seen := make(map[string]bool)
-	terms := make([]string, 0, len(variants)+len(variants)*len(formats))
-	appendTerm := func(term string) {
-		if term != "" && !seen[term] {
-			seen[term] = true
-			terms = append(terms, term)
-		}
-	}
-	for _, variant := range variants {
-		appendTerm("filename:" + variant)
-	}
-	for _, variant := range variants {
-		for _, format := range formats {
-			appendTerm(fmt.Sprintf("%q", variant+"."+strings.TrimPrefix(strings.ToLower(format), ".")))
-		}
-	}
-	exact := make([]string, 0, len(terms))
-	length := 0
-	for _, term := range terms {
-		addition := len(term)
-		if len(exact) > 0 {
-			addition += len(" OR ")
-		}
-		if length+addition > 240 {
-			break
-		}
-		exact = append(exact, term)
-		length += addition
-	}
-	qualifiers := make([]string, 0, len(formats))
-	seenQualifiers := make(map[string]bool)
+	allowed := make(map[string]bool, len(formats))
 	for _, format := range formats {
-		qualifier := "extension:" + strings.TrimPrefix(strings.ToLower(format), ".")
-		if !seenQualifiers[qualifier] {
-			seenQualifiers[qualifier] = true
-			qualifiers = append(qualifiers, qualifier)
+		allowed[strings.TrimPrefix(strings.ToLower(format), ".")] = true
+	}
+	orderedFormats := make([]string, 0, len(allowed))
+	for _, preferred := range []string{"ttf", "otf", "woff2", "woff", "dfont", "pfb", "pfm"} {
+		if allowed[preferred] {
+			orderedFormats = append(orderedFormats, preferred)
 		}
 	}
-	sort.Strings(qualifiers)
-	return []string{strings.Join(exact, " OR "), query + " " + strings.Join(qualifiers, " OR ")}
+	name := strings.TrimSpace(query)
+	if name == "" || len(orderedFormats) == 0 {
+		return nil
+	}
+	primaryCount := min(2, len(orderedFormats))
+	queries := make([]string, 0, maxGitHubCodeQueries)
+	names := []string{name}
+	words := strings.Fields(name)
+	if len(words) > 1 {
+		names = append(names, strings.Join(words, "-"), strings.Join(words, "_"), strings.Join(words, ""))
+	}
+	for _, format := range orderedFormats[:primaryCount] {
+		queries = append(queries, name+"."+format)
+	}
+	for _, format := range orderedFormats[:primaryCount] {
+		queries = append(queries, name+" ."+format)
+	}
+	for _, filename := range names[1:] {
+		for _, format := range orderedFormats[:primaryCount] {
+			queries = append(queries, filename+"."+format)
+		}
+	}
+	unique := uniqueStrings(queries)
+	if len(unique) > maxGitHubCodeQueries {
+		unique = unique[:maxGitHubCodeQueries]
+	}
+	return unique
+}
+
+func uniqueStrings(values []string) []string {
+	seen := make(map[string]bool, len(values))
+	unique := make([]string, 0, len(values))
+	for _, value := range values {
+		if seen[value] {
+			continue
+		}
+		seen[value] = true
+		unique = append(unique, value)
+	}
+	return unique
 }
 
 func branchFromHTMLURL(value string) string {

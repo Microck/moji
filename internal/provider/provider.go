@@ -4,15 +4,17 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 )
 
 var (
-	ErrRateLimited  = errors.New("rate limited")
-	ErrBlocked      = errors.New("blocked by site protection")
-	ErrUnavailable  = errors.New("provider unavailable")
-	ErrBadResponse  = errors.New("bad response from provider")
-	ErrNonRetryable = errors.New("non-retryable provider failure")
+	ErrRateLimited   = errors.New("rate limited")
+	ErrBlocked       = errors.New("blocked by site protection")
+	ErrUnavailable   = errors.New("provider unavailable")
+	ErrBadResponse   = errors.New("bad response from provider")
+	ErrNonRetryable  = errors.New("non-retryable provider failure")
+	ErrSearchSkipped = errors.New("provider search skipped")
 )
 
 func DescribeFailure(name string, err error) string {
@@ -105,6 +107,32 @@ type Event struct {
 type Provider interface {
 	Name() string
 	Search(ctx context.Context, query string, formats []string, out chan<- Event) error
+}
+
+type searchCycle struct {
+	mutex       sync.Mutex
+	githubQuery string
+}
+
+type searchCycleKey struct{}
+
+// WithSearchCycle lets providers share a per-command request budget across
+// adaptive query spellings without exposing provider-specific state to callers.
+func WithSearchCycle(ctx context.Context) context.Context {
+	return context.WithValue(ctx, searchCycleKey{}, &searchCycle{})
+}
+
+func claimGitHubSearch(ctx context.Context, query string) bool {
+	cycle, ok := ctx.Value(searchCycleKey{}).(*searchCycle)
+	if !ok {
+		return true
+	}
+	cycle.mutex.Lock()
+	defer cycle.mutex.Unlock()
+	if cycle.githubQuery == "" {
+		cycle.githubQuery = query
+	}
+	return cycle.githubQuery == query
 }
 
 type RatePolicy struct {

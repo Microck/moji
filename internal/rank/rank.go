@@ -51,6 +51,7 @@ var (
 		"reg": "regular", "roman": "regular", "med": "medium",
 		"bd": "bold", "bld": "bold", "sb": "semibold", "semibd": "semibold",
 	}
+	familyAliases = map[string]string{"premr": "premier"}
 )
 
 func DefaultWeights() Weights {
@@ -104,6 +105,9 @@ func ParseFilename(filename string) Tags {
 			continue
 		}
 		if compact != "" {
+			if canonical, ok := familyAliases[compact]; ok {
+				compact = canonical
+			}
 			family = append(family, compact)
 		}
 	}

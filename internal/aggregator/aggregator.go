@@ -90,6 +90,10 @@ func (a Aggregator) searchProvider(ctx context.Context, source provider.Provider
 			emit(ctx, out, provider.Event{Provider: name, Type: provider.EventStatus, Status: provider.StateDone, Count: count})
 			return
 		}
+		if errors.Is(searchErr, provider.ErrSearchSkipped) {
+			emit(ctx, out, provider.Event{Provider: name, Type: provider.EventStatus, Status: provider.StateDone, Count: count})
+			return
+		}
 		if errors.Is(searchErr, provider.ErrBlocked) || errors.Is(searchErr, provider.ErrNonRetryable) || errors.Is(searchErr, context.Canceled) || attempt == policy.Retries {
 			emit(ctx, out, provider.Event{Provider: name, Type: provider.EventStatus, Status: provider.StateFailed, Err: searchErr, Count: count})
 			return
