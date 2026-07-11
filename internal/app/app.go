@@ -15,7 +15,7 @@ import (
 	"golang.org/x/term"
 )
 
-var Version = "0.2.1"
+var Version = "0.2.2"
 var ReleaseMarker = "moji-release-version:development:moji-marker-end"
 
 // allowPrivateBuild is set only on the subprocess binary built by the E2E
