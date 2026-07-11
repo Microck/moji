@@ -47,7 +47,7 @@ func (application App) runGet(ctx context.Context, results []provider.Result, pa
 	failures := make([]error, 0)
 	for _, result := range results {
 		if healthAvailable {
-			if invalid, err := health.IsInvalidURL(result.URL); err == nil && invalid {
+			if invalid, err := health.IsInvalidURL(resultHealthKey(result)); err == nil && invalid {
 				failures = append(failures, fmt.Errorf("%s from %s: skipped because this URL previously returned invalid font content", result.Filename, result.Source))
 				continue
 			}
@@ -55,7 +55,7 @@ func (application App) runGet(ctx context.Context, results []provider.Result, pa
 		file, err := downloader.Download(ctx, result, expandHome(parsed.downloadDir))
 		if err != nil {
 			if healthAvailable && download.IsInvalidContent(err) {
-				_ = health.MarkInvalidURL(result.URL)
+				_ = health.MarkInvalidURL(resultHealthKey(result))
 			}
 			failures = append(failures, fmt.Errorf("%s from %s: %w", result.Filename, result.Source, err))
 			continue
@@ -81,7 +81,7 @@ func (application App) runGetFamily(ctx context.Context, downloader download.Dow
 		knownInvalid := ""
 		if healthAvailable {
 			for _, candidate := range candidates {
-				if invalid, err := health.IsInvalidURL(candidate.URL); err == nil && invalid {
+				if invalid, err := health.IsInvalidURL(resultHealthKey(candidate)); err == nil && invalid {
 					knownInvalid = candidate.Filename
 					break
 				}
@@ -96,7 +96,7 @@ func (application App) runGetFamily(ctx context.Context, downloader download.Dow
 			return application.writeDownloadedFiles(files, parsed.json)
 		}
 		if healthAvailable && download.IsInvalidContent(err) {
-			_ = health.MarkInvalidURL(download.InvalidContentURL(err))
+			_ = health.MarkInvalidURL(download.InvalidContentKey(err))
 		}
 		failures = append(failures, fmt.Errorf("%s from %s: %w", group.FamilyName, group.Source, err))
 	}
@@ -109,6 +109,13 @@ func urlHealthStore() (cache.Store, bool) {
 		return cache.Store{}, false
 	}
 	return cache.Store{Directory: directory}, true
+}
+
+func resultHealthKey(result provider.Result) string {
+	if result.ArchiveMember != "" {
+		return result.URL + "\x00" + result.ArchiveMember
+	}
+	return result.URL
 }
 
 func (application App) writeDownloadedFiles(files []download.File, jsonOutput bool) int {

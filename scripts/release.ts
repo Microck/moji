@@ -19,6 +19,16 @@ type PackageManifest = { name: string; version: string };
 type TagPreflight = { tag: string; head: string; remote: 'missing' | 'matching'; localTarget: string | null };
 type ReleasePreflight = 'missing-release' | 'missing-asset' | 'matching';
 
+class CommandError extends Error {
+  constructor(command: string, code: number | null, readonly stderr: string) {
+    super(`${command} exited with code ${code}${stderr.trim() ? `: ${stderr.trim()}` : ''}`);
+  }
+}
+
+export function isMissingReleaseError(stderr: string): boolean {
+  return /(?:release not found|HTTP 404)/i.test(stderr);
+}
+
 export function validateTargets(directories: readonly string[]): void {
   const expected = targets.map(({ directory }) => directory).sort();
   const actual = [...directories].sort();
@@ -80,21 +90,24 @@ export function parseRemoteAnnotatedTag(output: string, tag: string, expectedCom
 async function run(
   command: string,
   args: readonly string[],
-  options: { cwd?: string; capture?: boolean } = {},
+  options: { cwd?: string; capture?: boolean; captureStderr?: boolean } = {},
 ): Promise<string> {
   console.log(`> ${command} ${args.join(' ')}`);
   return await new Promise<string>((resolveRun, rejectRun) => {
     const capture = options.capture ?? false;
+		const captureStderr = options.captureStderr ?? false;
     const child = spawn(command, args, {
       cwd: options.cwd,
-      stdio: capture ? ['ignore', 'pipe', 'inherit'] : 'inherit',
+		stdio: ['ignore', capture ? 'pipe' : 'inherit', captureStderr ? 'pipe' : 'inherit'],
     });
     let stdout = '';
+		let stderr = '';
     if (capture) child.stdout?.on('data', (chunk: Buffer) => (stdout += chunk.toString()));
+		if (captureStderr) child.stderr?.on('data', (chunk: Buffer) => (stderr += chunk.toString()));
     child.once('error', rejectRun);
     child.once('exit', (code) => {
       if (code === 0) resolveRun(stdout);
-      else rejectRun(new Error(`${command} exited with code ${code}`));
+			else rejectRun(new CommandError(command, code, stderr));
     });
   });
 }
@@ -199,11 +212,12 @@ async function ensureAnnotatedTag(preflight: TagPreflight): Promise<string> {
 async function inspectGitHubRelease(tag: string, archive: string, temporaryRoot: string): Promise<ReleasePreflight> {
 	let release: { assets?: Array<{ name?: string }> } | null = null;
 	try {
-		release = JSON.parse(await run('gh', ['release', 'view', tag, '--json', 'assets'], { capture: true })) as {
+		release = JSON.parse(await run('gh', ['release', 'view', tag, '--json', 'assets'], { capture: true, captureStderr: true })) as {
 			assets?: Array<{ name?: string }>;
 		};
-	} catch {
-		return 'missing-release';
+	} catch (error: unknown) {
+		if (error instanceof CommandError && isMissingReleaseError(error.stderr)) return 'missing-release';
+		throw error;
 	}
 	const archiveName = basename(archive);
 	if (!release.assets?.some(({ name }) => name === archiveName)) return 'missing-asset';

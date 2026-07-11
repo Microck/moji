@@ -56,8 +56,8 @@ when artifact integrity and commit identity still match.
 
 - Live font availability is external and can change after the captured corpus.
 - Multi-file filesystem moves cannot be one kernel transaction. Moji validates
-  before moving and rolls back completed moves; if rollback itself fails, the
-  error now identifies possible partial output instead of claiming success.
+	before moving and uses no-replace operations so concurrent files are never
+	overwritten. A commit-time collision reports any already-saved family files.
 
 ## Reusable Follow-up
 

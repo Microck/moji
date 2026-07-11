@@ -176,6 +176,19 @@ func TestInteractiveDownloadRecordsInvalidURLHealth(t *testing.T) {
 	}
 }
 
+func TestArchiveMemberHealthDoesNotSuppressValidSibling(t *testing.T) {
+	t.Parallel()
+	store := cache.Store{Directory: t.TempDir()}
+	bad := provider.Result{URL: "https://example.test/family.zip", ArchiveMember: "Bad.otf"}
+	good := provider.Result{URL: bad.URL, ArchiveMember: "Good.otf"}
+	if err := store.MarkInvalidURL(resultHealthKey(bad)); err != nil {
+		t.Fatal(err)
+	}
+	if invalid, err := store.IsInvalidURL(resultHealthKey(good)); err != nil || invalid {
+		t.Fatalf("valid sibling invalid=%v err=%v", invalid, err)
+	}
+}
+
 func TestRunGetFamilyFallsBackAsACompleteSameSourceGroup(t *testing.T) {
 	t.Parallel()
 	server := httptest.NewTLSServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {

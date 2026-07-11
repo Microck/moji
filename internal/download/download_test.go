@@ -50,7 +50,7 @@ func TestDownloadClassifiesMalformedArchiveAsInvalidContent(t *testing.T) {
 		URL: server.URL, Filename: "Example-Regular.otf", Format: "otf",
 		ArchiveFormat: "zip", ArchiveMember: "Example-Regular.otf",
 	}, t.TempDir())
-	if err == nil || !IsInvalidContent(err) || InvalidContentURL(err) != server.URL {
+	if err == nil || !IsInvalidContent(err) || InvalidContentKey(err) != server.URL+"\x00Example-Regular.otf" {
 		t.Fatalf("malformed archive classification = %v", err)
 	}
 }
@@ -231,5 +231,25 @@ func TestDownloadRejectsHTTPSDowngradeRedirect(t *testing.T) {
 	_, err := (Downloader{Client: secure.Client()}).Download(context.Background(), provider.Result{URL: secure.URL, Filename: "font.otf", Format: "otf"}, t.TempDir())
 	if err == nil {
 		t.Fatal("expected HTTPS downgrade redirect to be rejected")
+	}
+}
+
+func TestMoveNoReplacePreservesConcurrentDestination(t *testing.T) {
+	t.Parallel()
+	directory := t.TempDir()
+	source := filepath.Join(directory, "source.otf")
+	destination := filepath.Join(directory, "destination.otf")
+	if err := os.WriteFile(source, []byte("source"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(destination, []byte("concurrent"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := moveNoReplace(source, destination); err == nil {
+		t.Fatal("moveNoReplace overwrote an existing destination")
+	}
+	content, err := os.ReadFile(destination)
+	if err != nil || string(content) != "concurrent" {
+		t.Fatalf("destination=%q err=%v", content, err)
 	}
 }

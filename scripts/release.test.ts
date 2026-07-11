@@ -4,6 +4,7 @@ import { test } from 'node:test';
 import {
   archiveIntegrity,
   binaryContainsExactVersion,
+	isMissingReleaseError,
   parseBuildMetadata,
 	parseRemoteAnnotatedTag,
   shouldPublishPackage,
@@ -71,4 +72,11 @@ test('resumes from a matching remote annotated tag and rejects unsafe tags', () 
 		() => parseRemoteAnnotatedTag(`${tagObject}\trefs/tags/v1.2.3\n${tagObject}\trefs/tags/v1.2.3^{}\n`, 'v1.2.3', commit),
 		/not current commit/,
 	);
+});
+
+test('classifies only explicit GitHub release 404s as missing', () => {
+	assert.equal(isMissingReleaseError('release not found'), true);
+	assert.equal(isMissingReleaseError('gh: Not Found (HTTP 404)'), true);
+	assert.equal(isMissingReleaseError('HTTP 503 Service Unavailable'), false);
+	assert.equal(isMissingReleaseError('authentication required'), false);
 });

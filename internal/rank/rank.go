@@ -400,30 +400,69 @@ type ResultGroup struct {
 	Formats    []string
 	BestFormat string
 	FileCount  int
+	familyRank int
+	styles     []string
+	variable   bool
 }
 
 func Groups(results []provider.Result) []ResultGroup {
 	indices := make(map[string]int)
+	familyRanks := make(map[string]int)
 	groups := make([]ResultGroup, 0)
 	for _, result := range results {
 		tags := ParseFilename(result.Filename)
 		key := tags.Family + "\x00" + familyGroupOf(result)
 		index, exists := indices[key]
 		if !exists {
+			familyRank, ranked := familyRanks[tags.Family]
+			if !ranked {
+				familyRank = len(familyRanks)
+				familyRanks[tags.Family] = familyRank
+			}
 			index = len(groups)
 			indices[key] = index
-			groups = append(groups, ResultGroup{FamilyName: tags.Family, Source: result.Source})
+			groups = append(groups, ResultGroup{FamilyName: tags.Family, Source: result.Source, familyRank: familyRank})
 		}
 		group := &groups[index]
 		group.Files = append(group.Files, result)
 		group.FileCount++
 		group.Weights = appendUnique(group.Weights, result.Weight)
 		group.Formats = appendUnique(group.Formats, result.Format)
+		style := result.Weight
+		if style == "" {
+			style = tags.Weight
+		}
+		if tags.Italic {
+			style += ":italic"
+		}
+		group.styles = appendUnique(group.styles, style)
+		group.variable = group.variable || result.Variable || tags.Variable
 		if formatValue(result.Format) > formatValue(group.BestFormat) {
 			group.BestFormat = result.Format
 		}
 	}
+	sort.SliceStable(groups, func(i, j int) bool {
+		if groups[i].familyRank != groups[j].familyRank {
+			return groups[i].familyRank < groups[j].familyRank
+		}
+		leftCoverage, rightCoverage := familyCoverage(groups[i]), familyCoverage(groups[j])
+		if leftCoverage != rightCoverage {
+			return leftCoverage > rightCoverage
+		}
+		if groups[i].FileCount != groups[j].FileCount {
+			return groups[i].FileCount > groups[j].FileCount
+		}
+		return groups[i].Files[0].Score > groups[j].Files[0].Score
+	})
 	return groups
+}
+
+func familyCoverage(group ResultGroup) int {
+	coverage := len(group.styles)
+	if group.variable && coverage < 2 {
+		return 2
+	}
+	return coverage
 }
 
 func familyGroupOf(result provider.Result) string {

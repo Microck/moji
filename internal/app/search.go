@@ -96,7 +96,7 @@ func (application App) searchEvents(ctx context.Context, current config.Config, 
 		defer cancel()
 		forward := func(searchQuery string) (relevantCount, completedCount int) {
 			for event := range aggregate.Search(searchCtx, searchQuery, formats) {
-				if event.Type == provider.EventResult && invalidURLs[event.Result.URL] {
+				if event.Type == provider.EventResult && invalidURLs[resultHealthKey(event.Result)] {
 					continue
 				}
 				if event.Type == provider.EventResult && rank.Relevance(event.Result, searchQuery) > 0 {
@@ -155,7 +155,7 @@ func (application App) interactiveDownloader(ctx context.Context, parsed options
 	return func(result provider.Result) (string, error) {
 		file, err := downloader.Download(ctx, result, expandHome(parsed.downloadDir))
 		if err != nil && healthAvailable && download.IsInvalidContent(err) {
-			_ = health.MarkInvalidURL(result.URL)
+			_ = health.MarkInvalidURL(resultHealthKey(result))
 		}
 		return file.Path, err
 	}

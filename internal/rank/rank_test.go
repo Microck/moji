@@ -254,3 +254,28 @@ func TestGroupsDoNotMixSameHostResultsFromDifferentRepositories(t *testing.T) {
 		t.Fatalf("selected = %#v, want one repository only", selected)
 	}
 }
+
+func TestGroupsPreferBroaderFamilyCoverageOverSingletonFormat(t *testing.T) {
+	t.Parallel()
+	results := []provider.Result{
+		{Filename: "Example-Regular.otf", Format: "otf", Source: "singleton", Score: 13},
+		{Filename: "Example-Regular.ttf", Format: "ttf", Source: "family", Score: 12},
+		{Filename: "Example-Bold.ttf", Format: "ttf", Source: "family", Score: 11},
+	}
+	groups := Groups(results)
+	if len(groups) != 2 || groups[0].Source != "family" {
+		t.Fatalf("groups = %#v, want broader family first", groups)
+	}
+}
+
+func TestGroupsTreatVariableFontAsCompleteFamily(t *testing.T) {
+	t.Parallel()
+	results := []provider.Result{
+		{Filename: "Example-Regular.otf", Source: "static", Score: 20},
+		{Filename: "Example[wght].ttf", Source: "variable", Variable: true, Score: 10},
+	}
+	groups := Groups(results)
+	if groups[0].Source != "variable" {
+		t.Fatalf("groups = %#v, want variable family first", groups)
+	}
+}

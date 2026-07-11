@@ -37,8 +37,9 @@ type File struct {
 // advertised font. Callers may remember this failure without treating network
 // or local filesystem errors as permanent URL failures.
 type InvalidContentError struct {
-	URL string
-	Err error
+	URL           string
+	ArchiveMember string
+	Err           error
 }
 
 func (failure InvalidContentError) Error() string { return failure.Err.Error() }
@@ -49,9 +50,12 @@ func IsInvalidContent(err error) bool {
 	return errors.As(err, &failure)
 }
 
-func InvalidContentURL(err error) string {
+func InvalidContentKey(err error) string {
 	var failure InvalidContentError
 	if errors.As(err, &failure) {
+		if failure.ArchiveMember != "" {
+			return failure.URL + "\x00" + failure.ArchiveMember
+		}
 		return failure.URL
 	}
 	return ""
@@ -114,7 +118,7 @@ func (d Downloader) Download(ctx context.Context, result provider.Result, destin
 		}
 		member, extractErr := archivefont.Extract(archive, result.ArchiveFormat, result.ArchiveMember, archivefont.DefaultLimits())
 		if extractErr != nil {
-			return File{}, InvalidContentError{URL: result.URL, Err: fmt.Errorf("Moji couldn't safely extract %s: %w. No file was saved", result.ArchiveMember, extractErr)}
+			return File{}, InvalidContentError{URL: result.URL, ArchiveMember: result.ArchiveMember, Err: fmt.Errorf("Moji couldn't safely extract %s: %w. No file was saved", result.ArchiveMember, extractErr)}
 		}
 		contentReader = bytes.NewReader(member)
 	}
@@ -148,7 +152,7 @@ func (d Downloader) Download(ctx context.Context, result provider.Result, destin
 		return File{}, fmt.Errorf("Moji couldn't validate the temporary download: %w. No font was saved; try again", err)
 	}
 	if err := ValidateMagic(result.Format, bytes); err != nil {
-		return File{}, InvalidContentError{URL: result.URL, Err: err}
+		return File{}, InvalidContentError{URL: result.URL, ArchiveMember: result.ArchiveMember, Err: err}
 	}
 	digest := hex.EncodeToString(hash.Sum(nil))
 	finalPath := filepath.Join(destination, filename)
@@ -164,7 +168,14 @@ func (d Downloader) Download(ctx context.Context, result provider.Result, destin
 		}
 		return File{}, fmt.Errorf("%s already contains a different file. Move or rename it, then try again", finalPath)
 	}
-	if err := os.Rename(temporaryPath, finalPath); err != nil {
+	if err := moveNoReplace(temporaryPath, finalPath); err != nil {
+		if existing, readErr := os.ReadFile(finalPath); readErr == nil {
+			existingHash := sha256.Sum256(existing)
+			if hex.EncodeToString(existingHash[:]) == digest {
+				return File{Path: finalPath, SHA256: digest, Existing: true}, nil
+			}
+			return File{}, fmt.Errorf("%s was created by another process with different content. Moji did not overwrite it", finalPath)
+		}
 		return File{}, fmt.Errorf("Moji couldn't move the validated font to %s: %w. No completed font was saved; check the directory permissions", finalPath, err)
 	}
 	return File{Path: finalPath, SHA256: digest}, nil
@@ -221,21 +232,10 @@ func (d Downloader) DownloadBatch(ctx context.Context, results []provider.Result
 		moves = append(moves, move{from: file.Path, to: finalPath})
 	}
 
-	moved := make([]move, 0, len(moves))
-	for _, operation := range moves {
-		if moveErr := os.Rename(operation.from, operation.to); moveErr != nil {
-			rollbackFailures := make([]error, 0)
-			for index := len(moved) - 1; index >= 0; index-- {
-				if rollbackErr := os.Rename(moved[index].to, moved[index].from); rollbackErr != nil {
-					rollbackFailures = append(rollbackFailures, fmt.Errorf("restore %s: %w", moved[index].to, rollbackErr))
-				}
-			}
-			if len(rollbackFailures) > 0 {
-				return nil, fmt.Errorf("Moji couldn't finish the family download at %s: %w. Rollback also failed, so the destination may contain part of the family: %v", operation.to, moveErr, errors.Join(rollbackFailures...))
-			}
-			return nil, fmt.Errorf("Moji couldn't finish the family download at %s: %w. Completed moves were rolled back", operation.to, moveErr)
+	for index, operation := range moves {
+		if moveErr := moveNoReplace(operation.from, operation.to); moveErr != nil {
+			return nil, fmt.Errorf("Moji couldn't finish the family download at %s without overwriting a concurrent file: %w. %d validated family files were already saved and were left untouched", operation.to, moveErr, index)
 		}
-		moved = append(moved, operation)
 	}
 	return files, nil
 }
