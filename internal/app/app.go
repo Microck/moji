@@ -50,7 +50,7 @@ func (application App) Run(ctx context.Context, args []string) int {
 		return 0
 	}
 	if len(args) == 0 && (!isTerminal(application.Stdin) || !isTerminal(application.Stdout)) {
-		return application.fail(errors.New("font query is required in non-interactive mode; example: moji \"Inter\""), 2)
+		return application.fail(errors.New("font query is required in non-interactive mode; example: moji \"Futura\""), 2)
 	}
 	configPath, err := config.Path()
 	if err != nil {
@@ -79,7 +79,7 @@ func (application App) Run(ctx context.Context, args []string) int {
 		return application.fail(err, 2)
 	}
 	if query == "" {
-		return application.fail(errors.New("font query is required; example: moji \"Inter\""), 2)
+		return application.fail(errors.New("font query is required; example: moji \"Futura\""), 2)
 	}
 	if err := validateProviderNames(parsed.providers); err != nil {
 		return application.fail(err, 2)

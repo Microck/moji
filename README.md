@@ -35,7 +35,7 @@ search for a family:
 ```bash
 moji
 # or jump straight to results
-moji "Inter"
+moji "Futura"
 ```
 
 bare `moji` opens the home TUI so you can type a query. pass a query to jump
@@ -43,16 +43,16 @@ straight to the live result list. redirect or pipe a queried command to get a
 stable table instead.
 
 ```bash
-moji "Inter" --format otf,ttf
-moji "Inter" --format woff2 --json
+moji "Futura" --format otf,ttf
+moji "Futura" --format woff2 --json
 ```
 
 download the best match, preview the choice first, or ask for the whole family:
 
 ```bash
-moji get "Inter bold" --dry-run
-moji get "Inter bold"
-moji get "Inter entire family" --download-dir ~/Downloads/moji
+moji get "Futura bold" --dry-run
+moji get "Futura bold"
+moji get "Futura entire family" --download-dir ~/Downloads/moji
 ```
 
 ## providers
@@ -73,7 +73,7 @@ interactive download flows remain excluded.
 
 ```bash
 export GITHUB_TOKEN=github_pat_example
-moji "Inter" --provider github
+moji "Futura" --provider github
 ```
 
 do not pass tokens as command-line flags. use `--token-stdin` when a token only
