@@ -30,7 +30,7 @@ export default function HomePage() {
   （       ）
    |  |  |
   （_＿）＿）`}</pre>
-          <p className="text-zinc-500">$ npm install --global @microck/moji</p>
+          <p className="text-zinc-500">$ npm install -g @microck/moji</p>
           <p className="mt-4 text-zinc-500">$ moji get &quot;Inter bold&quot; --dry-run</p>
           <p className="mt-4 text-orange-400">Would download:</p>
           <p className="mt-2">1&nbsp;&nbsp; OTF&nbsp;&nbsp; bold&nbsp;&nbsp; getfonts.cc/...</p>
