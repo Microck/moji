@@ -10,6 +10,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/microck/moji/internal/cache"
+	"github.com/microck/moji/internal/provider"
 )
 
 func TestRunSearchJSONAndGetDownload(t *testing.T) {
@@ -53,6 +56,157 @@ func TestRunSearchJSONAndGetDownload(t *testing.T) {
 	}
 	if !bytes.Equal(content, font) || !strings.Contains(stdout.String(), "Downloaded:") {
 		t.Fatalf("download output=%s content=%x", stdout.String(), content)
+	}
+}
+
+func TestRunGetFallsBackAfterInvalidRankedCandidate(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(root, "cache"))
+	invalidRequests := 0
+	server := httptest.NewTLSServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/best.otf" {
+			invalidRequests++
+			response.Write([]byte("not a font"))
+			return
+		}
+		response.Write(append([]byte("\x00\x01\x00\x00"), make([]byte, 32)...))
+	}))
+	defer server.Close()
+	destination := filepath.Join(root, "fonts")
+	var stdout, stderr bytes.Buffer
+	application := App{Stdout: &stdout, Stderr: &stderr, Client: server.Client()}
+	results := []provider.Result{
+		{URL: server.URL + "/best.otf", Filename: "Example-Bold.otf", Format: "otf", Source: "first"},
+		{URL: server.URL + "/fallback.ttf", Filename: "Example-Bold.ttf", Format: "ttf", Source: "second"},
+	}
+
+	if code := application.runGet(context.Background(), results, options{max: 1, downloadDir: destination}, false); code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+	if _, err := os.Stat(filepath.Join(destination, "Example-Bold.ttf")); err != nil {
+		t.Fatalf("fallback was not downloaded: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(destination, "Example-Bold.otf")); !os.IsNotExist(err) {
+		t.Fatalf("invalid candidate was saved: %v", err)
+	}
+	if code := application.runGet(context.Background(), results, options{max: 1, downloadDir: destination}, false); code != 0 {
+		t.Fatalf("second code=%d stderr=%s", code, stderr.String())
+	}
+	if invalidRequests != 1 {
+		t.Fatalf("known-invalid URL was requested %d times, want once", invalidRequests)
+	}
+}
+
+func TestRunGetKeepsCandidatesBeyondRequestedMaximumForFallback(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/invalid/Example-Bold.otf":
+			response.Write([]byte("not a font"))
+		case "/valid/Example-Bold.ttf":
+			response.Write(append([]byte("\x00\x01\x00\x00"), make([]byte, 32)...))
+		default:
+			fmt.Fprintf(response, `{"items":[{"name":"Example-Bold.otf","html_url":%q,"repository":{"full_name":"bad/fonts"}},{"name":"Example-Bold.ttf","html_url":%q,"repository":{"full_name":"good/fonts"}}]}`, serverURL(request, "/invalid/Example-Bold.otf"), serverURL(request, "/valid/Example-Bold.ttf"))
+		}
+	}))
+	defer server.Close()
+	root := t.TempDir()
+	configPath := filepath.Join(root, "config.yaml")
+	configBody := fmt.Sprintf("download_dir: %s\nsearch_timeout_seconds: 2\ncache_ttl_seconds: 60\ndefault_formats: [otf, ttf]\nproviders:\n  github:\n    enabled: false\n  getfonts:\n    enabled: true\n    instance: %s\n  registry:\n    enabled: false\n  websearch:\n    enabled: false\n", filepath.Join(root, "fonts"), server.URL)
+	if err := os.WriteFile(configPath, []byte(configBody), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("MOJI_CONFIG", configPath)
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(root, "cache"))
+	var stdout, stderr bytes.Buffer
+	application := App{Stdout: &stdout, Stderr: &stderr, Client: server.Client()}
+
+	if code := application.Run(context.Background(), []string{"get", "Example bold", "--allow-insecure", "--no-cache"}); code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+	if _, err := os.Stat(filepath.Join(root, "fonts", "Example-Bold.ttf")); err != nil {
+		t.Fatalf("candidate beyond max=1 was not used: %v", err)
+	}
+}
+
+func serverURL(request *http.Request, path string) string {
+	return "http://" + request.Host + path
+}
+
+func TestRunGetReportsEveryFailedCandidate(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewTLSServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		response.Write([]byte("not a font"))
+	}))
+	defer server.Close()
+	var stderr bytes.Buffer
+	application := App{Stdout: &bytes.Buffer{}, Stderr: &stderr, Client: server.Client()}
+	results := []provider.Result{
+		{URL: server.URL + "/one.otf", Filename: "Example-One.otf", Format: "otf", Source: "one"},
+		{URL: server.URL + "/two.ttf", Filename: "Example-Two.ttf", Format: "ttf", Source: "two"},
+	}
+
+	if code := application.runGet(context.Background(), results, options{max: 1, downloadDir: t.TempDir()}, false); code != 1 {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "Example-One.otf") || !strings.Contains(stderr.String(), "Example-Two.ttf") {
+		t.Fatalf("aggregate error omitted a candidate: %s", stderr.String())
+	}
+}
+
+func TestInteractiveDownloadRecordsInvalidURLHealth(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(root, "cache"))
+	server := httptest.NewTLSServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		response.Write([]byte("not a font"))
+	}))
+	defer server.Close()
+	application := App{Client: server.Client()}
+	downloadFont := application.interactiveDownloader(context.Background(), options{downloadDir: filepath.Join(root, "fonts")})
+	_, err := downloadFont(provider.Result{URL: server.URL, Filename: "Example.otf", Format: "otf"})
+	if err == nil {
+		t.Fatal("interactive invalid download error = nil")
+	}
+	directory, directoryErr := cache.DefaultDirectory()
+	if directoryErr != nil {
+		t.Fatal(directoryErr)
+	}
+	invalid, healthErr := (cache.Store{Directory: directory}).IsInvalidURL(server.URL)
+	if healthErr != nil || !invalid {
+		t.Fatalf("invalid=%v err=%v, want TUI failure recorded", invalid, healthErr)
+	}
+}
+
+func TestRunGetFamilyFallsBackAsACompleteSameSourceGroup(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewTLSServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if strings.HasPrefix(request.URL.Path, "/broken/") && strings.Contains(request.URL.Path, "Bold") {
+			response.Write([]byte("not a font"))
+			return
+		}
+		response.Write(append(append([]byte("OTTO"), []byte(request.URL.Path)...), make([]byte, 32)...))
+	}))
+	defer server.Close()
+	destination := t.TempDir()
+	var stdout, stderr bytes.Buffer
+	application := App{Stdout: &stdout, Stderr: &stderr, Client: server.Client()}
+	results := []provider.Result{
+		{URL: server.URL + "/broken/Regular.otf", Filename: "Example-Regular.otf", Format: "otf", Source: "broken", Score: 20},
+		{URL: server.URL + "/broken/Bold.otf", Filename: "Example-Bold.otf", Format: "otf", Source: "broken", Score: 19},
+		{URL: server.URL + "/healthy/Regular.otf", Filename: "Example-Regular.otf", Format: "otf", Source: "healthy", Score: 18},
+		{URL: server.URL + "/healthy/Bold.otf", Filename: "Example-Bold.otf", Format: "otf", Source: "healthy", Score: 17},
+	}
+
+	if code := application.runGet(context.Background(), results, options{max: 10, downloadDir: destination}, true); code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+	for _, name := range []string{"Example-Regular.otf", "Example-Bold.otf"} {
+		if _, err := os.Stat(filepath.Join(destination, name)); err != nil {
+			t.Fatalf("healthy family member %s missing: %v", name, err)
+		}
+	}
+	entries, err := os.ReadDir(destination)
+	if err != nil || len(entries) != 2 {
+		t.Fatalf("family destination contains partial or staging files: entries=%v err=%v", entries, err)
 	}
 }
 

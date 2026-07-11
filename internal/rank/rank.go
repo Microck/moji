@@ -2,6 +2,7 @@ package rank
 
 import (
 	"math"
+	"net/url"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -191,7 +192,7 @@ func Results(results []provider.Result, query, wantedWeight string, weights Weig
 		if tags.Variable {
 			ranked[i].Variable = true
 		}
-		key := tags.Family + "\x00" + ranked[i].Source
+		key := tags.Family + "\x00" + familyGroupOf(ranked[i])
 		if familySizes[key] == nil {
 			familySizes[key] = make(map[string]struct{})
 		}
@@ -203,7 +204,7 @@ func Results(results []provider.Result, query, wantedWeight string, weights Weig
 		tags := ParseFilename(ranked[i].Filename)
 		formatRank := map[string]float64{"otf": 3, "ttf": 2, "dfont": 1.5, "pfb": 1, "woff2": 0.75, "woff": 0.5, "pfm": 0.1}[ranked[i].Format]
 		score := weights.Format * formatRank
-		score += weights.FamilySize * math.Log2(1+float64(len(familySizes[tags.Family+"\x00"+ranked[i].Source])))
+		score += weights.FamilySize * math.Log2(1+float64(len(familySizes[tags.Family+"\x00"+familyGroupOf(ranked[i])])))
 		if ranked[i].Trusted {
 			score += weights.Trusted
 		}
@@ -227,6 +228,11 @@ func Results(results []provider.Result, query, wantedWeight string, weights Weig
 		if ranked[i].Score != ranked[j].Score {
 			return ranked[i].Score > ranked[j].Score
 		}
+		leftReliability := sourceReliability(ranked[i])
+		rightReliability := sourceReliability(ranked[j])
+		if leftReliability != rightReliability {
+			return leftReliability > rightReliability
+		}
 		if ranked[i].Filename != ranked[j].Filename {
 			return ranked[i].Filename < ranked[j].Filename
 		}
@@ -236,6 +242,33 @@ func Results(results []provider.Result, query, wantedWeight string, weights Weig
 		return ranked[i].URL < ranked[j].URL
 	})
 	return ranked
+}
+
+// sourceReliability describes how consistently a source identifies a direct
+// font file. It is deliberately independent from trust and license metadata:
+// a reliable direct URL is not evidence that its contents are licensed or
+// safe. Results uses this only after relevance and quality are tied.
+func sourceReliability(result provider.Result) int {
+	source := strings.ToLower(result.Source)
+	switch {
+	case source == "fontsource.org", source == "fonts.google.com":
+		return 4
+	case isRawGitHubURL(result.URL):
+		return 3
+	case strings.HasPrefix(source, "getfonts.cc/") || source == "getfonts.cc":
+		return 2
+	default:
+		return 1
+	}
+}
+
+func isRawGitHubURL(value string) bool {
+	parsed, err := url.Parse(value)
+	if err != nil {
+		return false
+	}
+	host := strings.ToLower(parsed.Hostname())
+	return host == "raw.githubusercontent.com" || host == "github.com" && strings.Contains(parsed.Path, "/raw/")
 }
 
 func Relevance(result provider.Result, query string) int {
@@ -374,7 +407,7 @@ func Groups(results []provider.Result) []ResultGroup {
 	groups := make([]ResultGroup, 0)
 	for _, result := range results {
 		tags := ParseFilename(result.Filename)
-		key := tags.Family + "\x00" + result.Source
+		key := tags.Family + "\x00" + familyGroupOf(result)
 		index, exists := indices[key]
 		if !exists {
 			index = len(groups)
@@ -393,15 +426,23 @@ func Groups(results []provider.Result) []ResultGroup {
 	return groups
 }
 
+func familyGroupOf(result provider.Result) string {
+	if result.FamilyGroup != "" {
+		return result.FamilyGroup
+	}
+	return result.Source
+}
+
 func SelectFamily(results []provider.Result, maximum int) []provider.Result {
 	if len(results) == 0 {
 		return nil
 	}
 	best := results[0]
 	bestFamily := ParseFilename(best.Filename).Family
+	bestGroup := familyGroupOf(best)
 	selected := make([]provider.Result, 0, maximum)
 	for _, result := range results {
-		if result.Source == best.Source && ParseFilename(result.Filename).Family == bestFamily {
+		if familyGroupOf(result) == bestGroup && ParseFilename(result.Filename).Family == bestFamily {
 			selected = append(selected, result)
 			if len(selected) == maximum {
 				break

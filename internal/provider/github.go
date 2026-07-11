@@ -169,6 +169,7 @@ func (source GitHub) searchRepositories(ctx context.Context, client *http.Client
 				}
 				for _, result := range results {
 					result.Source = "github.com/" + repository.FullName
+					result.FamilyGroup = result.Source
 					if result.SizeBytes == 0 && result.ArchiveMember == "" {
 						result.SizeBytes = asset.Size
 					}

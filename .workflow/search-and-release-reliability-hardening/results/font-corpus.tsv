@@ -1,0 +1,22 @@
+query	status	filename	format	bytes	sha256	rejected_candidates
+Gotham	pass	Gotham-Light.ttf	ttf	67400	8e4449e45d05f0bdb49f24851e1df94bc98b155237aba8f23b5513806921b494	7
+Helvetica Neue	pass	HelveticaNeue-Regular.otf	otf	676140	0ff3a909e6926ebff57ca8fd00c3c7d30405254ef9a0efb8290099d651d17562	0
+Avenir	pass	Avenir-regular.ttf	ttf	50052	abb5c29efacd5ca357db1d8d2e1f04ccec9bf180ff3c7747ae543fd067a263bc	0
+Futura	pass	futura-bold.otf	otf	17184	339e2354bc71491f3eb56c6426830f5aa9be04be318c62749cfdcfec36b14e03	0
+Brandon Grotesque	pass	BrandonGrotesque-Medium.otf	otf	89536	1f9d6d92a89f1ccfea85b8384cb0861cfb916716923e2a461c96b621fe2d1626	0
+Proxima Nova	pass	ProximaNova-SemiBold.otf	otf	143880	d42dc14b5ce4dd8819b0131c35d841123c2b350c29e0a5b6cc764f239f57e375	0
+Univers	pass	Univers.woff2	woff2	11504	430ca43960d6edba98a7203308728b6a0adb2c5431e35db607979438a333a54f	0
+FF DIN	pass	FF_DIN_Condensed_Black.otf	otf	31808	47f09a242c494a33f0a51ca9f1bdd59e725f2dc1a3432b2feef13327bc0987d2	0
+Knockout	pass	Knockout-HTF69-FullLiteweight.otf	otf	32564	3496f153b8ceabd64f955e6c37f09f0f6c2dea59dcf8947d8f21b7def5d70df0	0
+Garamond Premier Pro	pass	Garamond-Premier-Pro-Bold.woff2	woff2	178944	02208f92e9eed938d1c5ced39335cb58d24d729fcd2eee4b456111393369c950	0
+Whitney	pass	Whitney Book.otf	otf	27108	f31c365fedbe1da89d9aebe2d55dfc373170679221724deac12072fa3a013021	0
+Didot	pass	DidotLTStd-Ornaments.woff2	woff2	9340	adcdbc40216bf3c20b50c8633b04d088041d50f0faf79453fa4d87d2f710b289	0
+Neutraface	pass	NeutrafaceText-Bold.otf	otf	128564	082d214ce085b71dc8780625bdc4f42edd158bdf3b29da272fc216ff9135d588	0
+Trade Gothic	pass	Trade Gothic LT Bold Condensed No. 20 Oblique.ttf	ttf	54416	419e187392233770cd76c412a06fd11810ccd4d181e173ca2132b485a1f25a98	0
+Archer	miss	-	-	-	-	0
+Akzidenz-Grotesk	pass	akzidenz-grotesk-bold.ttf	ttf	47988	0469acfae365bab9e028f9772f32d41f3dc4fdd63165d77624bf54d55eafab44	0
+Frutiger	pass	Frutiger.ttf	ttf	36924	61bc05483ccc3ca099da0b327dc0b554e0b978107d5e21fd141e1419b24412fb	0
+Graphik	pass	Graphik-Regular-Web.woff2	woff2	30997	3c207c3ab1b05e36d6006dd0b18e2eda1fcd104854e27008332177b986d62ce2	18
+Minion Pro	pass	MinionPro-Regular.otf	otf	235436	4777f31d117d3dcd7f1650fd7b7f7035bc56ba046f913ffd4fb7c86b88faa72b	0
+Mrs. Eaves	pass	mrseavesbold-webfont.ttf	ttf	59064	28a37280d6004fce707fbdfc52f554c746d34b9a663fff54857eb3619413cb9d	0
+Belarius Serif Narrow Regular	miss	-	-	-	-	0

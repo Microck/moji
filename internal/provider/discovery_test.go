@@ -24,7 +24,7 @@ func TestResolveDiscoveredArchiveMembers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(results) != 1 || results[0].ArchiveMember != "Family/Example-Bold.otf" || results[0].Filename != "Example-Bold.otf" {
+	if len(results) != 1 || results[0].ArchiveMember != "Family/Example-Bold.otf" || results[0].Filename != "Example-Bold.otf" || results[0].FamilyGroup == "" || results[0].FamilyGroup == server.URL+"/family.zip" {
 		t.Fatalf("results = %#v", results)
 	}
 }
@@ -39,7 +39,7 @@ func TestResolveDiscoveredStylesheetFonts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(results) != 1 || results[0].URL != server.URL+"/fonts/Example.woff2" {
+	if len(results) != 1 || results[0].URL != server.URL+"/fonts/Example.woff2" || results[0].FamilyGroup == "" || results[0].FamilyGroup == server.URL+"/css/family.css" {
 		t.Fatalf("results = %#v", results)
 	}
 }
@@ -79,7 +79,7 @@ func TestResolveDiscoveredURLConvertsGitHubBlobToRaw(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(results) != 1 || results[0].URL != "https://raw.githubusercontent.com/acme/fonts/main/Example.otf" {
+	if len(results) != 1 || results[0].URL != "https://raw.githubusercontent.com/acme/fonts/main/Example.otf" || results[0].FamilyGroup != "github.com/acme/fonts" {
 		t.Fatalf("results = %#v", results)
 	}
 }

@@ -1,0 +1,31 @@
+{
+  "title": "Search and release reliability hardening",
+  "slug": "search-and-release-reliability-hardening",
+  "created_at": "2026-07-11T18:12:30+00:00",
+  "status": "completed",
+  "approval": {
+    "required": false,
+    "granted": true,
+    "notes": "Local implementation and verification approved; external publication remains gated."
+  },
+  "packets": [
+    {"id":"contracts","status":"completed"},
+    {"id":"fallback-downloads","status":"completed"},
+    {"id":"negative-cache","status":"completed"},
+    {"id":"source-reliability","status":"completed"},
+    {"id":"release-runbook","status":"completed"},
+    {"id":"docs-ci","status":"completed"},
+    {"id":"verification-corpus","status":"completed"}
+  ],
+  "verification": {
+    "status": "completed",
+    "checks": [
+      "go-race",
+      "release-tests",
+      "six-target-archive",
+      "committed-binaries",
+      "npm-verify",
+      "font-corpus"
+    ]
+  }
+}

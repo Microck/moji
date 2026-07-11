@@ -28,6 +28,12 @@ Moji reads the first four bytes and compares them with the selected format:
 
 HTML error pages and mislabeled files fail validation.
 
+When a direct URL returns bytes that fail this validation, Moji records that
+URL in a bounded local health cache for 30 days. Later searches suppress the
+known-bad URL without fetching it again. Network failures, HTTP status errors,
+redirect policy failures, cancellations, and filesystem errors are not
+recorded because they do not prove that the URL's content is invalid.
+
 ## Filesystem controls
 
 Content is streamed into a temporary file in the destination directory. Only a
@@ -42,6 +48,16 @@ SHA-256:
 
 Error messages state when no completed file was saved, so a failed operation
 does not leave the user guessing about partial state.
+
+`moji get` keeps the ranked candidate pool after choosing the requested
+download count. If the highest-ranked candidate fails, Moji tries later
+candidates until it has the requested number of valid files. If none work, the
+error lists the candidates it tried.
+
+Family downloads are staged as one same-source group. Every selected member
+must validate before any member is moved into the destination. If one source
+fails, Moji discards its staging directory and tries the next coherent family
+source instead of mixing files from different sources.
 
 ## Licensing boundary
 

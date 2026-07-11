@@ -127,10 +127,7 @@ func (application App) Run(ctx context.Context, args []string) int {
 		results = rank.FilterWeight(results, strings.ToLower(parsed.weight))
 	}
 	results = rank.Results(results, query, strings.ToLower(parsed.weight), current.Ranking)
-	if getMode && intent.WantFamily {
-		results = rank.SelectFamily(results, parsed.max)
-	}
-	if len(results) > parsed.max {
+	if !getMode && len(results) > parsed.max {
 		results = results[:parsed.max]
 	}
 	if parsed.verbose {
@@ -139,7 +136,7 @@ func (application App) Run(ctx context.Context, args []string) int {
 		}
 	}
 	if getMode {
-		return application.runGet(ctx, results, parsed)
+		return application.runGet(ctx, results, parsed, intent.WantFamily)
 	}
 	if parsed.json {
 		return application.writeJSON(results)

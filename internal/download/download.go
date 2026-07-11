@@ -33,6 +33,30 @@ type File struct {
 	Existing bool
 }
 
+// InvalidContentError marks a URL that returned bytes which cannot be the
+// advertised font. Callers may remember this failure without treating network
+// or local filesystem errors as permanent URL failures.
+type InvalidContentError struct {
+	URL string
+	Err error
+}
+
+func (failure InvalidContentError) Error() string { return failure.Err.Error() }
+func (failure InvalidContentError) Unwrap() error { return failure.Err }
+
+func IsInvalidContent(err error) bool {
+	var failure InvalidContentError
+	return errors.As(err, &failure)
+}
+
+func InvalidContentURL(err error) string {
+	var failure InvalidContentError
+	if errors.As(err, &failure) {
+		return failure.URL
+	}
+	return ""
+}
+
 func (d Downloader) Download(ctx context.Context, result provider.Result, destination string) (File, error) {
 	parsed, err := url.Parse(result.URL)
 	if err != nil {
@@ -90,7 +114,7 @@ func (d Downloader) Download(ctx context.Context, result provider.Result, destin
 		}
 		member, extractErr := archivefont.Extract(archive, result.ArchiveFormat, result.ArchiveMember, archivefont.DefaultLimits())
 		if extractErr != nil {
-			return File{}, fmt.Errorf("Moji couldn't safely extract %s: %w. No file was saved", result.ArchiveMember, extractErr)
+			return File{}, InvalidContentError{URL: result.URL, Err: fmt.Errorf("Moji couldn't safely extract %s: %w. No file was saved", result.ArchiveMember, extractErr)}
 		}
 		contentReader = bytes.NewReader(member)
 	}
@@ -124,7 +148,7 @@ func (d Downloader) Download(ctx context.Context, result provider.Result, destin
 		return File{}, fmt.Errorf("Moji couldn't validate the temporary download: %w. No font was saved; try again", err)
 	}
 	if err := ValidateMagic(result.Format, bytes); err != nil {
-		return File{}, err
+		return File{}, InvalidContentError{URL: result.URL, Err: err}
 	}
 	digest := hex.EncodeToString(hash.Sum(nil))
 	finalPath := filepath.Join(destination, filename)
@@ -144,6 +168,76 @@ func (d Downloader) Download(ctx context.Context, result provider.Result, destin
 		return File{}, fmt.Errorf("Moji couldn't move the validated font to %s: %w. No completed font was saved; check the directory permissions", finalPath, err)
 	}
 	return File{Path: finalPath, SHA256: digest}, nil
+}
+
+// DownloadBatch validates every file in an isolated staging directory before
+// exposing any of them in destination. This keeps family downloads coherent:
+// one bad member cannot leave a partially downloaded family behind.
+func (d Downloader) DownloadBatch(ctx context.Context, results []provider.Result, destination string) ([]File, error) {
+	if err := os.MkdirAll(destination, 0o755); err != nil {
+		return nil, fmt.Errorf("Moji couldn't create the download directory %s: %w. Check the directory permissions, then try again", destination, err)
+	}
+	staging, err := os.MkdirTemp(destination, ".moji-family-*")
+	if err != nil {
+		return nil, fmt.Errorf("Moji couldn't create a family staging directory in %s: %w. No font was saved", destination, err)
+	}
+	defer os.RemoveAll(staging)
+
+	staged := make([]File, 0, len(results))
+	stagedPaths := make(map[string]bool, len(results))
+	for _, result := range results {
+		file, downloadErr := d.Download(ctx, result, staging)
+		if downloadErr != nil {
+			return nil, downloadErr
+		}
+		if !stagedPaths[file.Path] {
+			stagedPaths[file.Path] = true
+			staged = append(staged, file)
+		}
+	}
+
+	files := make([]File, len(staged))
+	type move struct{ from, to string }
+	moves := make([]move, 0, len(staged))
+	for index, file := range staged {
+		finalPath := filepath.Join(destination, filepath.Base(file.Path))
+		if duplicatePath, found, findErr := findDuplicate(destination, file.SHA256); findErr != nil {
+			return nil, fmt.Errorf("Moji couldn't inspect existing files in %s: %w. No family files were saved", destination, findErr)
+		} else if found {
+			files[index] = File{Path: duplicatePath, SHA256: file.SHA256, Existing: true}
+			continue
+		}
+		if existing, readErr := os.ReadFile(finalPath); readErr == nil {
+			hash := sha256.Sum256(existing)
+			if hex.EncodeToString(hash[:]) != file.SHA256 {
+				return nil, fmt.Errorf("%s already contains a different file. No family files were saved; move or rename it, then try again", finalPath)
+			}
+			files[index] = File{Path: finalPath, SHA256: file.SHA256, Existing: true}
+			continue
+		} else if !errors.Is(readErr, os.ErrNotExist) {
+			return nil, fmt.Errorf("Moji couldn't inspect %s: %w. No family files were saved", finalPath, readErr)
+		}
+		files[index] = File{Path: finalPath, SHA256: file.SHA256}
+		moves = append(moves, move{from: file.Path, to: finalPath})
+	}
+
+	moved := make([]move, 0, len(moves))
+	for _, operation := range moves {
+		if moveErr := os.Rename(operation.from, operation.to); moveErr != nil {
+			rollbackFailures := make([]error, 0)
+			for index := len(moved) - 1; index >= 0; index-- {
+				if rollbackErr := os.Rename(moved[index].to, moved[index].from); rollbackErr != nil {
+					rollbackFailures = append(rollbackFailures, fmt.Errorf("restore %s: %w", moved[index].to, rollbackErr))
+				}
+			}
+			if len(rollbackFailures) > 0 {
+				return nil, fmt.Errorf("Moji couldn't finish the family download at %s: %w. Rollback also failed, so the destination may contain part of the family: %v", operation.to, moveErr, errors.Join(rollbackFailures...))
+			}
+			return nil, fmt.Errorf("Moji couldn't finish the family download at %s: %w. Completed moves were rolled back", operation.to, moveErr)
+		}
+		moved = append(moved, operation)
+	}
+	return files, nil
 }
 
 func findDuplicate(directory, digest string) (string, bool, error) {

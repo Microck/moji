@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io"
@@ -36,7 +37,7 @@ func resolveDiscoveredURL(ctx context.Context, client *http.Client, rawURL, quer
 	if allowed[format] {
 		return []Result{{
 			Name: query, Filename: filename, Format: format, Source: parsed.Host,
-			URL: rawURL, Trusted: false, License: "unknown",
+			URL: rawURL, Trusted: false, License: "unknown", FamilyGroup: directFamilyGroup(parsed),
 		}}, nil
 	}
 	if format == "css" {
@@ -55,7 +56,7 @@ func resolveDiscoveredURL(ctx context.Context, client *http.Client, rawURL, quer
 			if resolved.Scheme == "https" && resolved.Host != "" && allowed[fontFormat] {
 				results = append(results, Result{
 					Name: query, Filename: discoveredFilename(resolved.Path, query, fontFormat), Format: fontFormat,
-					Source: resolved.Host, URL: resolved.String(), Trusted: false, License: "unknown",
+					Source: resolved.Host, URL: resolved.String(), Trusted: false, License: "unknown", FamilyGroup: discoveredFamilyGroup("css", rawURL),
 				})
 			}
 		}
@@ -78,10 +79,25 @@ func resolveDiscoveredURL(ctx context.Context, client *http.Client, rawURL, quer
 		results = append(results, Result{
 			Name: query, Filename: filepath.Base(member.Path), Format: member.Format,
 			SizeBytes: member.Size, Source: parsed.Host, URL: rawURL,
-			Trusted: false, License: "unknown", ArchiveFormat: archiveFormat, ArchiveMember: member.Path,
+			Trusted: false, License: "unknown", ArchiveFormat: archiveFormat, ArchiveMember: member.Path, FamilyGroup: discoveredFamilyGroup("archive", rawURL),
 		})
 	}
 	return results, nil
+}
+
+func directFamilyGroup(parsed *url.URL) string {
+	if strings.EqualFold(parsed.Hostname(), "raw.githubusercontent.com") {
+		parts := strings.Split(strings.Trim(parsed.Path, "/"), "/")
+		if len(parts) >= 2 {
+			return "github.com/" + parts[0] + "/" + parts[1]
+		}
+	}
+	return discoveredFamilyGroup("url", parsed.String())
+}
+
+func discoveredFamilyGroup(kind, value string) string {
+	digest := sha256.Sum256([]byte(value))
+	return fmt.Sprintf("%s:%x", kind, digest)
 }
 
 func discoveredFilename(pathValue, query, format string) string {

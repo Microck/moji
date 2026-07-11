@@ -40,6 +40,21 @@ func TestDownloadExtractsAndValidatesArchiveMember(t *testing.T) {
 	}
 }
 
+func TestDownloadClassifiesMalformedArchiveAsInvalidContent(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewTLSServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		response.Write([]byte("not a zip archive"))
+	}))
+	defer server.Close()
+	_, err := (Downloader{Client: server.Client()}).Download(context.Background(), provider.Result{
+		URL: server.URL, Filename: "Example-Regular.otf", Format: "otf",
+		ArchiveFormat: "zip", ArchiveMember: "Example-Regular.otf",
+	}, t.TempDir())
+	if err == nil || !IsInvalidContent(err) || InvalidContentURL(err) != server.URL {
+		t.Fatalf("malformed archive classification = %v", err)
+	}
+}
+
 func TestValidateLegacyFontFormats(t *testing.T) {
 	t.Parallel()
 	pfb := []byte{0x80, 0x01, 0x04, 0x00, 0x00, 0x00, 'f', 'o', 'n', 't', 0x80, 0x03}
@@ -96,12 +111,44 @@ func TestDownloadRejectsInvalidContentWithoutResidue(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected invalid magic error")
 	}
+	if !IsInvalidContent(err) {
+		t.Fatalf("invalid font content must be classifiable for URL health caching: %v", err)
+	}
 	if !strings.Contains(err.Error(), "No file was saved") || !strings.Contains(err.Error(), "try another source") {
 		t.Fatalf("error does not explain recovery: %v", err)
 	}
 	entries, readErr := os.ReadDir(destination)
 	if readErr != nil || len(entries) != 0 {
 		t.Fatalf("temporary file left behind: %v, %v", entries, readErr)
+	}
+}
+
+func TestDownloadBatchLeavesDestinationUnchangedWhenAnyFontIsInvalid(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewTLSServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/valid.otf" {
+			response.Write(append([]byte("OTTO"), make([]byte, 32)...))
+			return
+		}
+		response.Write([]byte("not a font"))
+	}))
+	defer server.Close()
+	destination := t.TempDir()
+	marker := filepath.Join(destination, "keep.txt")
+	if err := os.WriteFile(marker, []byte("unchanged"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := (Downloader{Client: server.Client()}).DownloadBatch(context.Background(), []provider.Result{
+		{URL: server.URL + "/valid.otf", Filename: "Family-Regular.otf", Format: "otf"},
+		{URL: server.URL + "/invalid.otf", Filename: "Family-Bold.otf", Format: "otf"},
+	}, destination)
+	if err == nil || !IsInvalidContent(err) {
+		t.Fatalf("expected classifiable invalid-content failure, got %v", err)
+	}
+	entries, readErr := os.ReadDir(destination)
+	if readErr != nil || len(entries) != 1 || entries[0].Name() != "keep.txt" {
+		t.Fatalf("family failure changed destination: entries=%v err=%v", entries, readErr)
 	}
 }
 
