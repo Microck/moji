@@ -148,13 +148,9 @@ func (application App) runConfig(current config.Config, path string, args []stri
 			return application.fail(err, 1)
 		}
 	}
-	editor := os.Getenv("EDITOR")
-	if editor == "" {
-		return application.fail(fmt.Errorf("Moji couldn't open the config because $EDITOR is not set. Set EDITOR to your preferred editor or edit %s directly", path), 1)
-	}
-	editorCommand, err := parseEditorCommand(editor)
+	editorCommand, err := resolveEditorCommand()
 	if err != nil {
-		return application.fail(fmt.Errorf("Moji couldn't parse $EDITOR: %w. Set EDITOR to an executable with optional shell-style arguments or edit %s directly", err, path), 1)
+		return application.fail(fmt.Errorf("%w. Set VISUAL or EDITOR to an executable command or edit %s directly", err, path), 1)
 	}
 	command := exec.Command(editorCommand[0], append(editorCommand[1:], path)...)
 	command.Stdin, command.Stdout, command.Stderr = application.Stdin, application.Stdout, application.Stderr
@@ -162,6 +158,43 @@ func (application App) runConfig(current config.Config, path string, args []stri
 		return application.fail(fmt.Errorf("the editor couldn't open %s: %w. Your config file was not changed by Moji", path, err), 1)
 	}
 	return 0
+}
+
+func resolveEditorCommand() ([]string, error) {
+	if visual := strings.TrimSpace(os.Getenv("VISUAL")); visual != "" {
+		if command, err := resolveConfiguredEditor("VISUAL", visual); err == nil {
+			return command, nil
+		}
+	}
+
+	if editor := strings.TrimSpace(os.Getenv("EDITOR")); editor != "" {
+		if command, err := resolveConfiguredEditor("EDITOR", editor); err == nil {
+			return command, nil
+		}
+	}
+
+	candidates := []string{"sensible-editor", "editor", "nano", "vim", "vi"}
+	for _, candidate := range candidates {
+		command, err := parseEditorCommand(candidate)
+		if err != nil {
+			continue
+		}
+		if _, err := exec.LookPath(command[0]); err == nil {
+			return command, nil
+		}
+	}
+	return nil, errors.New("couldn't find a usable terminal editor in PATH")
+}
+
+func resolveConfiguredEditor(name, value string) ([]string, error) {
+	command, err := parseEditorCommand(value)
+	if err != nil {
+		return nil, fmt.Errorf("the value of $%s is invalid: %w", name, err)
+	}
+	if _, err := exec.LookPath(command[0]); err != nil {
+		return nil, fmt.Errorf("$%s command %q is not available on PATH", name, command[0])
+	}
+	return command, nil
 }
 
 func parseEditorCommand(value string) ([]string, error) {

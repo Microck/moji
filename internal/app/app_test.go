@@ -331,14 +331,39 @@ func TestBareNonInteractiveUsageDoesNotDependOnValidConfig(t *testing.T) {
 	}
 }
 
-func TestConfigWithoutEditorProvidesDirectPath(t *testing.T) {
+func TestConfigWithoutEditorFallsBackToAvailableEditor(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "config.yaml")
+	if err := os.WriteFile(path, []byte(""), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	editorBin := filepath.Join(root, "bin")
+	if err := os.MkdirAll(editorBin, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	captured := filepath.Join(root, "captured-path")
+	editor := filepath.Join(editorBin, "editor")
+	editorScript := "#!/bin/sh\nprintf '%s' \"$1\" > \"" + captured + "\"\n"
+	if err := os.WriteFile(editor, []byte(editorScript), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", editorBin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv("MOJI_CONFIG", path)
 	t.Setenv("EDITOR", "")
+	t.Setenv("VISUAL", "")
 	var stderr bytes.Buffer
 	code := (App{Stdout: &bytes.Buffer{}, Stderr: &stderr}).Run(context.Background(), []string{"config"})
-	if code != 1 || !strings.Contains(stderr.String(), "edit "+path+" directly") {
+	if code != 0 {
+		t.Fatalf("config code = %d stderr=%s", code, stderr.String())
+	}
+	capturedPath, err := os.ReadFile(captured)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(capturedPath) != path {
+		t.Fatalf("editor received %q, expected %q", string(capturedPath), path)
+	}
+	if stderr.Len() != 0 {
 		t.Fatalf("code=%d error=%q", code, stderr.String())
 	}
 }
