@@ -38,6 +38,11 @@ type batchMove struct {
 	to   string
 }
 
+type committedBatchMove struct {
+	batchMove
+	identity os.FileInfo
+}
+
 // InvalidContentError marks a URL that returned bytes which cannot be the
 // advertised font. Callers may remember this failure without treating network
 // or local filesystem errors as permanent URL failures.
@@ -248,39 +253,46 @@ func (d Downloader) DownloadBatch(ctx context.Context, results []provider.Result
 }
 
 func commitBatchMoves(moves []batchMove) error {
-	type committedMove struct {
-		batchMove
-		identity os.FileInfo
-	}
-	committed := make([]committedMove, 0, len(moves))
+	committed := make([]committedBatchMove, 0, len(moves))
 	for _, operation := range moves {
+		identity, statErr := os.Stat(operation.from)
+		if statErr != nil {
+			return fmt.Errorf("Moji couldn't identify the staged family file %s: %w", operation.from, statErr)
+		}
 		if err := moveNoReplace(operation.from, operation.to); err != nil {
-			rollbackFailures := make([]error, 0)
-			for index := len(committed) - 1; index >= 0; index-- {
-				current, statErr := os.Stat(committed[index].to)
-				if errors.Is(statErr, os.ErrNotExist) {
-					continue
-				}
-				if statErr != nil || !os.SameFile(committed[index].identity, current) {
-					rollbackFailures = append(rollbackFailures, fmt.Errorf("%s changed before rollback", committed[index].to))
-					continue
-				}
-				if removeErr := os.Remove(committed[index].to); removeErr != nil {
-					rollbackFailures = append(rollbackFailures, fmt.Errorf("remove %s: %w", committed[index].to, removeErr))
-				}
-			}
-			if len(rollbackFailures) > 0 {
-				return fmt.Errorf("Moji couldn't finish the family download at %s without overwriting a concurrent file: %w. Rollback was incomplete: %v", operation.to, err, errors.Join(rollbackFailures...))
+			if rollbackErr := rollbackBatchMoves(committed); rollbackErr != nil {
+				return fmt.Errorf("Moji couldn't finish the family download at %s without overwriting a concurrent file: %w. Rollback was incomplete: %v", operation.to, err, rollbackErr)
 			}
 			return fmt.Errorf("Moji couldn't finish the family download at %s without overwriting a concurrent file: %w. Earlier family moves were rolled back", operation.to, err)
 		}
-		identity, statErr := os.Stat(operation.to)
-		if statErr != nil {
-			return fmt.Errorf("Moji couldn't verify the committed family file %s: %w", operation.to, statErr)
+		current, statErr := os.Stat(operation.to)
+		if statErr != nil || !os.SameFile(identity, current) {
+			if rollbackErr := rollbackBatchMoves(committed); rollbackErr != nil {
+				return fmt.Errorf("Moji couldn't verify ownership of %s after moving it. Earlier rollback was incomplete: %v", operation.to, rollbackErr)
+			}
+			return fmt.Errorf("Moji couldn't verify ownership of %s after moving it. Earlier family moves were rolled back and the changed path was left untouched", operation.to)
 		}
-		committed = append(committed, committedMove{batchMove: operation, identity: identity})
+		committed = append(committed, committedBatchMove{batchMove: operation, identity: identity})
 	}
 	return nil
+}
+
+func rollbackBatchMoves(committed []committedBatchMove) error {
+	failures := make([]error, 0)
+	for index := len(committed) - 1; index >= 0; index-- {
+		current, err := os.Stat(committed[index].to)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil || !os.SameFile(committed[index].identity, current) {
+			failures = append(failures, fmt.Errorf("%s changed before rollback", committed[index].to))
+			continue
+		}
+		if err := os.Remove(committed[index].to); err != nil {
+			failures = append(failures, fmt.Errorf("remove %s: %w", committed[index].to, err))
+		}
+	}
+	return errors.Join(failures...)
 }
 
 func findDuplicate(directory, digest string) (string, bool, error) {

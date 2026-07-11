@@ -280,3 +280,28 @@ func TestCommitBatchMovesRollsBackAfterLaterCollision(t *testing.T) {
 		t.Fatalf("concurrent file=%q err=%v", content, readErr)
 	}
 }
+
+func TestRollbackBatchMovesPreservesReplacedFile(t *testing.T) {
+	t.Parallel()
+	directory := t.TempDir()
+	original := filepath.Join(directory, "original.otf")
+	destination := filepath.Join(directory, "destination.otf")
+	if err := os.WriteFile(original, []byte("original"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	identity, err := os.Stat(original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(destination, []byte("replacement"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err = rollbackBatchMoves([]committedBatchMove{{batchMove: batchMove{to: destination}, identity: identity}})
+	if err == nil {
+		t.Fatal("rollback accepted a replacement file as its own")
+	}
+	content, readErr := os.ReadFile(destination)
+	if readErr != nil || string(content) != "replacement" {
+		t.Fatalf("replacement=%q err=%v", content, readErr)
+	}
+}
