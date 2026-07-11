@@ -257,7 +257,10 @@ func commitBatchMoves(moves []batchMove) error {
 	for _, operation := range moves {
 		identity, statErr := os.Stat(operation.from)
 		if statErr != nil {
-			return fmt.Errorf("Moji couldn't identify the staged family file %s: %w", operation.from, statErr)
+			if rollbackErr := rollbackBatchMoves(committed); rollbackErr != nil {
+				return fmt.Errorf("Moji couldn't identify the staged family file %s: %w. Rollback was incomplete: %v", operation.from, statErr, rollbackErr)
+			}
+			return fmt.Errorf("Moji couldn't identify the staged family file %s: %w. Earlier family moves were rolled back", operation.from, statErr)
 		}
 		if err := moveNoReplace(operation.from, operation.to); err != nil {
 			if rollbackErr := rollbackBatchMoves(committed); rollbackErr != nil {

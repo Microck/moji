@@ -281,6 +281,26 @@ func TestCommitBatchMovesRollsBackAfterLaterCollision(t *testing.T) {
 	}
 }
 
+func TestCommitBatchMovesRollsBackWhenLaterSourceDisappears(t *testing.T) {
+	t.Parallel()
+	directory := t.TempDir()
+	firstSource := filepath.Join(directory, "first-source.otf")
+	firstDestination := filepath.Join(directory, "first.otf")
+	if err := os.WriteFile(firstSource, []byte("first"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := commitBatchMoves([]batchMove{
+		{from: firstSource, to: firstDestination},
+		{from: filepath.Join(directory, "missing.otf"), to: filepath.Join(directory, "second.otf")},
+	})
+	if err == nil {
+		t.Fatal("expected missing staged source error")
+	}
+	if _, statErr := os.Stat(firstDestination); !os.IsNotExist(statErr) {
+		t.Fatalf("first family file was not rolled back: %v", statErr)
+	}
+}
+
 func TestRollbackBatchMovesPreservesReplacedFile(t *testing.T) {
 	t.Parallel()
 	directory := t.TempDir()
