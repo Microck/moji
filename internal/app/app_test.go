@@ -249,14 +249,14 @@ func TestRunRejectsUnsupportedProviderAndBadUsage(t *testing.T) {
 	t.Setenv("MOJI_CONFIG", filepath.Join(t.TempDir(), "missing.yaml"))
 	var stdout, stderr bytes.Buffer
 	application := App{Stdout: &stdout, Stderr: &stderr}
-	if code := application.Run(context.Background(), []string{"Inter", "--provider", "getthefont"}); code != 2 {
+	if code := application.Run(context.Background(), []string{"Futura", "--provider", "getthefont"}); code != 2 {
 		t.Fatalf("provider exit code = %d", code)
 	}
 	if !strings.Contains(stderr.String(), "unknown provider \"getthefont\"") {
 		t.Fatalf("provider error = %s", stderr.String())
 	}
 	stderr.Reset()
-	if code := application.Run(context.Background(), []string{"Inter", "--format", "exe"}); code != 2 {
+	if code := application.Run(context.Background(), []string{"Futura", "--format", "exe"}); code != 2 {
 		t.Fatalf("usage exit code = %d", code)
 	}
 }
@@ -291,7 +291,7 @@ func TestMissingQueryExplainsHowToRecover(t *testing.T) {
 	t.Setenv("MOJI_CONFIG", filepath.Join(t.TempDir(), "missing.yaml"))
 	var stderr bytes.Buffer
 	code := (App{Stdout: &bytes.Buffer{}, Stderr: &stderr}).Run(context.Background(), []string{"get"})
-	if code != 2 || !strings.Contains(stderr.String(), "example: moji \"Inter\"") {
+	if code != 2 || !strings.Contains(stderr.String(), "example: moji \"Futura\"") {
 		t.Fatalf("code=%d error=%q", code, stderr.String())
 	}
 }

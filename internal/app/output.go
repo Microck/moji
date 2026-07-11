@@ -96,10 +96,10 @@ Usage:
 
 Examples:
   moji
-  moji "Inter"
-  moji "Inter" --format otf,ttf --json
-  moji get "Inter bold" --dry-run
-  moji get "Inter bold" --download-dir ~/Downloads/moji
+  moji "Futura"
+  moji "Futura" --format otf,ttf --json
+  moji get "Futura bold" --dry-run
+  moji get "Futura bold" --download-dir ~/Downloads/moji
 
 Flags:
   -f, --format <list>                  otf, ttf, woff, woff2, dfont, pfb, pfm

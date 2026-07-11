@@ -6,7 +6,7 @@ description: Use structured output and exit codes in scripts and pipelines.
 Add `--json` whenever another program will parse the output:
 
 ```sh
-moji "Inter" --format otf --json
+moji "Futura" --format otf --json
 ```
 
 Search output is an array of result objects. Each object includes:
@@ -21,21 +21,21 @@ Search output is an array of result objects. Each object includes:
 ## Select a field with jq
 
 ```sh
-moji "Inter" --format otf --json |
+moji "Futura" --format otf --json |
   jq -r '.[].url'
 ```
 
 ## Preview an automated download
 
 ```sh
-moji get "Inter bold" --dry-run --json |
+moji get "Futura bold" --dry-run --json |
   jq '.[0] | {filename, source, license}'
 ```
 
 ## Check exit status
 
 ```sh
-if moji get "Inter bold" --dry-run --json > selection.json; then
+if moji get "Futura bold" --dry-run --json > selection.json; then
   jq '.[0]' selection.json
 else
   echo "Moji could not select a font" >&2

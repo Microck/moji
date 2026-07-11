@@ -10,7 +10,7 @@ provider until a token or custom endpoint is available.
 
 ```sh
 export GITHUB_TOKEN=github_pat_your_token
-moji "Inter" --provider github
+moji "Futura" --provider github
 ```
 
 The environment variable takes precedence over `github_token` in the config
@@ -22,7 +22,7 @@ Use `--token-stdin` when a secret manager or another process supplies the token:
 
 ```sh
 printf '%s' "$TOKEN_FROM_SECRET_MANAGER" |
-  moji "Inter" --provider github --token-stdin --json
+  moji "Futura" --provider github --token-stdin --json
 ```
 
 Moji intentionally has no inline `--token` flag because command-line arguments
