@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src=".github/assets/moji-logo.svg" alt="moji" width="480">
+<img src=".github/assets/moji-logo.svg" alt="moji" width="280">
 
 <h1>moji</h1>
 
