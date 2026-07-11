@@ -7,7 +7,7 @@
 <p>
   <a href="https://www.npmjs.com/package/@microck/moji"><img src="https://img.shields.io/npm/v/@microck/moji?style=flat-square&color=000000" alt="npm version badge"></a>
   <img src="https://img.shields.io/npm/dt/@microck/moji?style=flat-square&color=000000" alt="npm total downloads badge">
-  <img src="https://img.shields.io/badge/platform-linux%20%7C%20macos%20%7C%20windows-000000?style=flat-square" alt="platform badge">
+  <a href="https://github.com/Microck/moji/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/Microck/moji/ci.yml?branch=main&style=flat-square&label=ci&color=000000" alt="ci badge"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-000000?style=flat-square" alt="MIT license badge"></a>
 </p>
 
