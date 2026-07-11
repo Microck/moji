@@ -64,8 +64,11 @@ func (a Aggregator) searchProvider(ctx context.Context, source provider.Provider
 		for {
 			select {
 			case event := <-attemptOut:
-				if event.Status == provider.StateThrottled && event.RetryAfter > 0 {
-					providerRetryAfter = event.RetryAfter
+				if event.Type == provider.EventStatus && event.Status == provider.StateThrottled {
+					if event.RetryAfter > 0 {
+						providerRetryAfter = event.RetryAfter
+					}
+					continue
 				}
 				if event.Type == provider.EventResult {
 					count++
@@ -87,7 +90,7 @@ func (a Aggregator) searchProvider(ctx context.Context, source provider.Provider
 			emit(ctx, out, provider.Event{Provider: name, Type: provider.EventStatus, Status: provider.StateDone, Count: count})
 			return
 		}
-		if errors.Is(searchErr, provider.ErrBlocked) || errors.Is(searchErr, context.Canceled) || attempt == policy.Retries {
+		if errors.Is(searchErr, provider.ErrBlocked) || errors.Is(searchErr, provider.ErrNonRetryable) || errors.Is(searchErr, context.Canceled) || attempt == policy.Retries {
 			emit(ctx, out, provider.Event{Provider: name, Type: provider.EventStatus, Status: provider.StateFailed, Err: searchErr, Count: count})
 			return
 		}

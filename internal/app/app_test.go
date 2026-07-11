@@ -25,7 +25,7 @@ func TestRunSearchJSONAndGetDownload(t *testing.T) {
 
 	root := t.TempDir()
 	configPath := filepath.Join(root, "config.yaml")
-	configBody := fmt.Sprintf("download_dir: %s\nsearch_timeout_seconds: 2\ncache_ttl_seconds: 60\ndefault_formats: [otf]\nproviders:\n  github:\n    enabled: false\n  getfonts:\n    enabled: true\n    instance: %s\n  websearch:\n    enabled: false\n", filepath.Join(root, "fonts"), server.URL)
+	configBody := fmt.Sprintf("download_dir: %s\nsearch_timeout_seconds: 2\ncache_ttl_seconds: 60\ndefault_formats: [otf]\nproviders:\n  github:\n    enabled: false\n  getfonts:\n    enabled: true\n    instance: %s\n  registry:\n    enabled: false\n  websearch:\n    enabled: false\n", filepath.Join(root, "fonts"), server.URL)
 	if err := os.WriteFile(configPath, []byte(configBody), 0o600); err != nil {
 		t.Fatal(err)
 	}

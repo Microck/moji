@@ -15,8 +15,10 @@ moji "Source Sans" --format otf,ttf
 moji "Source Sans" --format woff2
 ```
 
-Supported values are `otf`, `ttf`, `woff`, and `woff2`. Moji rejects other
-values before starting a provider request.
+Supported values are `otf`, `ttf`, `woff`, `woff2`, `dfont`, `pfb`, and `pfm`.
+Moji rejects other values before starting a provider request. PFM is a metrics
+companion for a Type 1 PFB font, so family mode is the useful way to retrieve
+both files together.
 
 ## Select a weight
 
@@ -37,10 +39,12 @@ Use a comma-separated provider list:
 ```sh
 moji "Inter" --provider getfonts
 moji "Inter" --provider github,getfonts
+moji "Inter" --provider registry,websearch
 ```
 
 GitHub search appears only when a token is configured. SearXNG web search
-appears only when it is enabled with an instance URL.
+appears only when it is enabled with an instance URL. The `plugins` provider
+appears only when at least one executable is listed in `source_plugins`.
 
 ## Limit output
 

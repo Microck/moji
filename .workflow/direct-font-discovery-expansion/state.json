@@ -1,0 +1,30 @@
+{
+  "title": "Direct font discovery expansion",
+  "slug": "direct-font-discovery-expansion",
+  "created_at": "2026-07-11T15:08:23+00:00",
+  "status": "completed",
+  "approval": {
+    "required": false,
+    "granted": true,
+    "notes": "User explicitly requested the local implementation goal. External publishing remains out of scope."
+  },
+  "packets": [
+    {"id":"contracts","status":"completed"},
+    {"id":"archives","status":"completed"},
+    {"id":"css","status":"completed"},
+    {"id":"github-adaptive","status":"completed"},
+    {"id":"registries","status":"completed"},
+    {"id":"plugins","status":"completed"},
+    {"id":"integration","status":"completed"}
+  ],
+  "verification": {
+    "status": "completed",
+    "checks": [
+      "focused unit and integration tests",
+      "uncached race suite",
+      "go vet",
+      "npm run verify",
+      "live no-Kagi corpus"
+    ]
+  }
+}

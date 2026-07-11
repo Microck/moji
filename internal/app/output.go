@@ -33,7 +33,11 @@ func (application App) writeTable(results []provider.Result) {
 		if weight == "" {
 			weight = "-"
 		}
-		fmt.Fprintf(writer, "%d\t%s\t%s\t%s\t%s\t%s\n", index+1, strings.ToUpper(result.Format), weight, result.Source, formatSize(result.SizeBytes), result.License)
+		format := strings.ToUpper(result.Format)
+		if result.Variable {
+			format += "-VAR"
+		}
+		fmt.Fprintf(writer, "%d\t%s\t%s\t%s\t%s\t%s\n", index+1, format, weight, result.Source, formatSize(result.SizeBytes), result.License)
 	}
 	writer.Flush()
 }
@@ -98,10 +102,10 @@ Examples:
   moji get "Inter bold" --download-dir ~/Downloads/moji
 
 Flags:
-  -f, --format <list>                  otf, ttf, woff, woff2
+  -f, --format <list>                  otf, ttf, woff, woff2, dfont, pfb, pfm
   -w, --weight <name>                  Filter by font weight
   -n, --max <count>                    Maximum results or downloads
-      --provider <list>                github,getfonts
+--provider <list>                github,getfonts,registry,plugins,websearch
       --json                           Machine-readable output
       --dry-run                        Preview get downloads
   -d, --download-dir <path>            Download destination

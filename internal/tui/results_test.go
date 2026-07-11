@@ -68,7 +68,7 @@ func TestModelViewIncludesMonaMascot(t *testing.T) {
 func TestHomeUsesFullMonaAndBlockWordmark(t *testing.T) {
 	t.Parallel()
 	for _, size := range []struct{ width, height int }{{100, 30}, {40, 16}} {
-		model := sizedModel(t, NewHomeModel(nil, nil, false, "", rank.DefaultWeights(), 10), size.width, size.height)
+		model := sizedModel(t, NewHomeModel(nil, nil, false, "", rank.DefaultWeights(), 10, ""), size.width, size.height)
 		view := model.View()
 		assertViewFits(t, view, size.width, size.height)
 		for _, wanted := range []string{"（　・∀・）", "█▀▄▀█ █▀█   █ █", "█ ▀ █ █▄█ █▄█ █"} {
@@ -102,7 +102,7 @@ func TestViewsFitSupportedTerminalSizes(t *testing.T) {
 			model.preview = true
 			assertViewFits(t, model.View(), size.width, size.height)
 
-			home := sizedModel(t, NewHomeModel(nil, nil, false, "", rank.DefaultWeights(), 10), size.width, size.height)
+			home := sizedModel(t, NewHomeModel(nil, nil, false, "", rank.DefaultWeights(), 10, ""), size.width, size.height)
 			assertViewFits(t, home.View(), size.width, size.height)
 		})
 	}
@@ -239,14 +239,14 @@ func TestHomeModelStartsLiveSearchFromTypedQuery(t *testing.T) {
 	t.Parallel()
 
 	events := make(chan provider.Event, 2)
-	events <- provider.Event{Provider: "fixture", Type: provider.EventResult, Result: provider.Result{Filename: "Inter-Regular.otf", Format: "otf"}}
+	events <- provider.Event{Provider: "fixture", Type: provider.EventResult, Result: provider.Result{Filename: "Quicksand-Regular.otf", Format: "otf"}}
 	events <- provider.Event{Provider: "fixture", Type: provider.EventStatus, Status: provider.StateDone, Count: 1}
 	close(events)
 	var searched string
 	model := NewHomeModel(func(query string) (<-chan provider.Event, error) {
 		searched = query
 		return events, nil
-	}, nil, false, "", rank.DefaultWeights(), 10)
+	}, nil, false, "", rank.DefaultWeights(), 10, "")
 	if !strings.Contains(model.View(), "Type a font name") {
 		t.Fatalf("home prompt missing:\n%s", model.View())
 	}
@@ -264,13 +264,13 @@ func TestHomeModelStartsLiveSearchFromTypedQuery(t *testing.T) {
 		updated, command = model.Update(command())
 		model = updated.(Model)
 	}
-	if !strings.Contains(model.View(), "Inter-Regular.otf") {
+	if !strings.Contains(model.View(), "Quicksand-Regular.otf") {
 		t.Fatalf("search result missing:\n%s", model.View())
 	}
 }
 
 func TestHomeModelKeepsPastedQueryOnOneLine(t *testing.T) {
-	model := sizedModel(t, NewHomeModel(nil, nil, false, "", rank.DefaultWeights(), 10), 40, 12)
+	model := sizedModel(t, NewHomeModel(nil, nil, false, "", rank.DefaultWeights(), 10, ""), 40, 12)
 
 	updated, _ := model.Update(tea.KeyMsg{
 		Type:  tea.KeyRunes,
@@ -284,6 +284,18 @@ func TestHomeModelKeepsPastedQueryOnOneLine(t *testing.T) {
 	}
 	if got := len(strings.Split(model.View(), "\n")); got != 12 {
 		t.Fatalf("rendered lines = %d, want terminal height 12", got)
+	}
+}
+
+func TestHomeModelShowsGitHubConfigurationHint(t *testing.T) {
+	t.Parallel()
+	model := sizedModel(t, NewHomeModel(
+		nil, nil, false, "", rank.DefaultWeights(), 10,
+		"GitHub search is off. Set GITHUB_TOKEN to search more repositories.",
+	), 96, 30)
+	view := model.View()
+	if !strings.Contains(view, "[!] GitHub search is off") || !strings.Contains(view, "GITHUB_TOKEN") {
+		t.Fatalf("GitHub hint missing:\n%s", view)
 	}
 }
 
@@ -329,7 +341,7 @@ func TestLiveModelStreamsProviderEvents(t *testing.T) {
 	events <- provider.Event{Provider: "fixture", Type: provider.EventResult, Result: provider.Result{Filename: "Live.otf", Format: "otf"}}
 	events <- provider.Event{Provider: "fixture", Type: provider.EventStatus, Status: provider.StateDone, Count: 1}
 	close(events)
-	model := NewLiveModel(events, nil, false, "", rank.DefaultWeights(), 10)
+	model := NewLiveModel(events, nil, false, "", "", rank.DefaultWeights(), 10)
 	for command := model.Init(); command != nil; {
 		updated, next := model.Update(command())
 		model = updated.(Model)
@@ -350,7 +362,7 @@ func TestLiveModelHonorsExplicitMaximum(t *testing.T) {
 	}
 	events <- provider.Event{Provider: "fixture", Type: provider.EventStatus, Status: provider.StateDone, Count: 12}
 	close(events)
-	model := NewLiveModel(events, nil, false, "", rank.DefaultWeights(), 5)
+	model := NewLiveModel(events, nil, false, "", "", rank.DefaultWeights(), 5)
 	for command := model.Init(); command != nil; {
 		updated, next := model.Update(command())
 		model = updated.(Model)
