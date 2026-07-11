@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"net/url"
 	"path/filepath"
@@ -63,12 +64,21 @@ func resolveDiscoveredURL(ctx context.Context, client *http.Client, rawURL, quer
 		return results, nil
 	}
 	archiveFormat := discoveredArchiveFormat(parsed.Path)
+	var content []byte
 	if archiveFormat == "" {
-		return nil, nil
-	}
-	content, err := fetchDiscoveryContent(ctx, client, rawURL, maxDiscoveryContainerSize)
-	if err != nil {
-		return nil, err
+		content, _, err = fetchDiscoveryContentWithType(ctx, client, rawURL, maxDiscoveryContainerSize, true)
+		if err != nil {
+			return nil, err
+		}
+		archiveFormat = sniffArchiveFormat(content)
+		if archiveFormat == "" {
+			return nil, nil
+		}
+	} else {
+		content, err = fetchDiscoveryContent(ctx, client, rawURL, maxDiscoveryContainerSize)
+		if err != nil {
+			return nil, err
+		}
 	}
 	members, err := archivefont.Inspect(content, archiveFormat, allowed, archivefont.DefaultLimits())
 	if err != nil {
@@ -112,6 +122,11 @@ func discoveredFilename(pathValue, query, format string) string {
 }
 
 func fetchDiscoveryContent(ctx context.Context, client *http.Client, rawURL string, maximum int64) ([]byte, error) {
+	content, _, err := fetchDiscoveryContentWithType(ctx, client, rawURL, maximum, false)
+	return content, err
+}
+
+func fetchDiscoveryContentWithType(ctx context.Context, client *http.Client, rawURL string, maximum int64, requireBinary bool) ([]byte, string, error) {
 	if client == nil {
 		client = &http.Client{}
 	}
@@ -131,27 +146,58 @@ func fetchDiscoveryContent(ctx context.Context, client *http.Client, rawURL stri
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	response, err := clientCopy.Do(request)
 	if err != nil {
-		return nil, fmt.Errorf("%w: discovery request: %v", ErrUnavailable, err)
+		return nil, "", fmt.Errorf("%w: discovery request: %v", ErrUnavailable, err)
 	}
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return nil, nil
+		return nil, "", nil
 	}
 	if response.ContentLength > maximum {
-		return nil, errors.New("discovery response exceeds the size limit")
+		return nil, "", errors.New("discovery response exceeds the size limit")
+	}
+	contentType := response.Header.Get("Content-Type")
+	if requireBinary && !directBinaryContentType(contentType) {
+		return nil, contentType, nil
 	}
 	content, err := io.ReadAll(io.LimitReader(response.Body, maximum+1))
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	if int64(len(content)) > maximum {
-		return nil, errors.New("discovery response exceeds the size limit")
+		return nil, "", errors.New("discovery response exceeds the size limit")
 	}
-	return content, nil
+	return content, contentType, nil
+}
+
+func directBinaryContentType(value string) bool {
+	mediaType, _, err := mime.ParseMediaType(value)
+	if err != nil {
+		return false
+	}
+	switch strings.ToLower(mediaType) {
+	case "application/octet-stream", "application/zip", "application/x-zip-compressed", "application/x-tar", "application/gzip", "application/x-gzip":
+		return true
+	default:
+		return false
+	}
+}
+
+func sniffArchiveFormat(content []byte) string {
+	if len(content) >= 4 && content[0] == 'P' && content[1] == 'K' &&
+		((content[2] == 3 && content[3] == 4) || (content[2] == 5 && content[3] == 6) || (content[2] == 7 && content[3] == 8)) {
+		return "zip"
+	}
+	if len(content) >= 2 && content[0] == 0x1f && content[1] == 0x8b {
+		return "tgz"
+	}
+	if len(content) >= 262 && string(content[257:262]) == "ustar" {
+		return "tar"
+	}
+	return ""
 }
 
 func cssFontFormat(pathValue, declared string) string {

@@ -67,6 +67,9 @@ the `websearch` provider automatically uses
 `kagi auth` once. Ordinary web pages are ignored. direct CSS font URLs and
 bounded ZIP or TAR archive members can become results. configured source
 plugins pass through the same HTTPS, format, and download validation boundary.
+Direct binary responses with missing or misleading extensions can also be
+recognized as ZIP, TAR, or compressed TAR archives by signature; webpages and
+interactive download flows remain excluded.
 
 ```bash
 export GITHUB_TOKEN=github_pat_example

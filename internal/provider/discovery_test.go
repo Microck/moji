@@ -29,6 +29,62 @@ func TestResolveDiscoveredArchiveMembers(t *testing.T) {
 	}
 }
 
+func TestResolveDiscoveredArchiveByContentWhenExtensionIsMissing(t *testing.T) {
+	t.Parallel()
+	var archive bytes.Buffer
+	writer := zip.NewWriter(&archive)
+	font, _ := writer.Create("Family/Example-Regular.otf")
+	font.Write([]byte("OTTOfont"))
+	writer.Close()
+	server := httptest.NewTLSServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		response.Header().Set("Content-Type", "application/octet-stream")
+		response.Write(archive.Bytes())
+	}))
+	defer server.Close()
+	results, err := resolveDiscoveredURL(context.Background(), server.Client(), server.URL+"/download?id=family", "Example", map[string]bool{"otf": true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 || results[0].ArchiveFormat != "zip" || results[0].ArchiveMember != "Family/Example-Regular.otf" {
+		t.Fatalf("results = %#v", results)
+	}
+}
+
+func TestResolveDiscoveredURLDoesNotTreatHTMLPageAsDownload(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewTLSServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		response.Header().Set("Content-Type", "text/html")
+		response.Write([]byte("<html>PK\\x03\\x04 download</html>"))
+	}))
+	defer server.Close()
+	results, err := resolveDiscoveredURL(context.Background(), server.Client(), server.URL+"/font-page", "Example", map[string]bool{"otf": true})
+	if err != nil || len(results) != 0 {
+		t.Fatalf("results=%#v err=%v", results, err)
+	}
+}
+
+func TestSniffArchiveFormatRecognizesSupportedSignatures(t *testing.T) {
+	t.Parallel()
+	tarContent := make([]byte, 262)
+	copy(tarContent[257:], "ustar")
+	for name, test := range map[string]struct {
+		content []byte
+		want    string
+	}{
+		"zip":  {content: []byte{'P', 'K', 3, 4}, want: "zip"},
+		"tgz":  {content: []byte{0x1f, 0x8b, 8, 0}, want: "tgz"},
+		"tar":  {content: tarContent, want: "tar"},
+		"html": {content: []byte("<html>"), want: ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			if got := sniffArchiveFormat(test.content); got != test.want {
+				t.Fatalf("sniffArchiveFormat() = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
 func TestResolveDiscoveredStylesheetFonts(t *testing.T) {
 	t.Parallel()
 	server := httptest.NewTLSServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {

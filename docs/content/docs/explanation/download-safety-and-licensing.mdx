@@ -28,6 +28,11 @@ Moji reads the first four bytes and compares them with the selected format:
 
 HTML error pages and mislabeled files fail validation.
 
+During discovery, Moji can recognize ZIP, TAR, and compressed TAR signatures
+when a direct binary response has no useful archive extension. It then applies
+the same entry-count, member-size, and expanded-size limits used for named
+archives. A webpage is never reclassified as a downloadable archive.
+
 When a direct URL returns bytes that fail this validation, Moji records that
 URL in a bounded local health cache for 30 days. Later searches suppress the
 known-bad URL without fetching it again. Network failures, HTTP status errors,

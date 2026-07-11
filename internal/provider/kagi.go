@@ -22,7 +22,8 @@ func (source KagiCLI) Search(ctx context.Context, query string, formats []string
 	if executable == "" {
 		executable = "kagi"
 	}
-	command := exec.CommandContext(ctx, executable, "search", "--format", "json", "--error-format", "json", "--limit", "20", query+" font "+strings.Join(kagiQueryFormats(formats), " ")+" zip css")
+	searchQuery := "(" + query + " font " + strings.Join(kagiQueryFormats(formats), " ") + " zip css) OR (" + strings.Join(fontIndexQueries(query), " OR ") + ")"
+	command := exec.CommandContext(ctx, executable, "search", "--format", "json", "--error-format", "json", "--limit", "20", searchQuery)
 	content, err := command.Output()
 	if err != nil {
 		if exitError, ok := err.(*exec.ExitError); ok {
