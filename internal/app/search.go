@@ -61,6 +61,7 @@ func (application App) searchEvents(ctx context.Context, current config.Config, 
 		return nil, 0, err
 	}
 	store := cache.Store{Directory: cacheDirectory, TTL: time.Duration(current.CacheTTLSeconds) * time.Second}
+	invalidURLs, _ := store.InvalidURLs()
 	available := map[string]provider.Provider{
 		"getfonts": provider.GetFonts{Client: application.Client, Endpoint: current.Providers["getfonts"].Instance},
 		"registry": provider.RegistrySearch{
@@ -95,6 +96,9 @@ func (application App) searchEvents(ctx context.Context, current config.Config, 
 		defer cancel()
 		forward := func(searchQuery string) (relevantCount, completedCount int) {
 			for event := range aggregate.Search(searchCtx, searchQuery, formats) {
+				if event.Type == provider.EventResult && invalidURLs[resultHealthKey(event.Result)] {
+					continue
+				}
 				if event.Type == provider.EventResult && rank.Relevance(event.Result, searchQuery) > 0 {
 					relevantCount++
 				}
@@ -146,9 +150,13 @@ func (application App) runHome(ctx context.Context, current config.Config, forma
 }
 
 func (application App) interactiveDownloader(ctx context.Context, parsed options) tui.DownloadFunc {
-	downloader := download.Downloader{Client: application.Client, AllowInsecure: parsed.allowInsecure}
+	downloader := download.Downloader{Client: application.Client, AllowInsecure: parsed.allowInsecure, AllowPrivate: application.allowPrivate}
+	health, healthAvailable := urlHealthStore()
 	return func(result provider.Result) (string, error) {
 		file, err := downloader.Download(ctx, result, expandHome(parsed.downloadDir))
+		if err != nil && healthAvailable && download.IsInvalidContent(err) {
+			_ = health.MarkInvalidURL(resultHealthKey(result))
+		}
 		return file.Path, err
 	}
 }

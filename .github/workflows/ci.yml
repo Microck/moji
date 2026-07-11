@@ -39,5 +39,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Test release contract
+        run: npm run test:release
+
+      - name: Verify release archive
+        run: npm run release
+
+      - name: Verify committed native binaries
+        run: git diff --exit-code -- binaries
+
       - name: Verify
         run: npm run verify

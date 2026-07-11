@@ -154,6 +154,26 @@ func webSearchQueries(query string, formats []string) []string {
 		"intitle:"+quoted+" github",
 		quoted+" \"@font-face\" filetype:css",
 	)
+	queries = append(queries, fontIndexQueries(query)...)
+	return queries
+}
+
+var fontIndexSiteGroups = [][]string{
+	{"onlinewebfonts.com", "wfonts.com", "befonts.com", "cufonfonts.com"},
+	{"freefontsfamily.org", "fontsfree.net", "dfonts.org", "font.download"},
+	{"ffonts.net", "dafontfree.co", "fontshub.pro", "fontbolt.com"},
+}
+
+func fontIndexQueries(query string) []string {
+	filename := fmt.Sprintf("(%q OR %q)", query+".ttf", query+".otf")
+	queries := make([]string, 0, len(fontIndexSiteGroups))
+	for _, sites := range fontIndexSiteGroups {
+		clauses := make([]string, 0, len(sites))
+		for _, site := range sites {
+			clauses = append(clauses, "site:"+site)
+		}
+		queries = append(queries, filename+" ("+strings.Join(clauses, " OR ")+")")
+	}
 	return queries
 }
 

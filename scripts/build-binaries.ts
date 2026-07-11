@@ -12,7 +12,12 @@ const targets = [
 ] as const;
 
 const packageManifest = JSON.parse(await readFile('package.json', 'utf8')) as { version: string };
-const linkFlags = `-s -w -X github.com/microck/moji/internal/app.Version=${packageManifest.version}`;
+const linkFlags = [
+  '-s',
+  '-w',
+  `-X github.com/microck/moji/internal/app.Version=${packageManifest.version}`,
+  `-X github.com/microck/moji/internal/app.ReleaseMarker=moji-release-version:${packageManifest.version}:moji-marker-end`,
+].join(' ');
 
 async function build(platform: string, nodeArchitecture: string, goArchitecture: string) {
   const directory = resolve('binaries', `${platform}-${nodeArchitecture}`);

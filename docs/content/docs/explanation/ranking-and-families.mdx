@@ -31,6 +31,12 @@ The score combines:
 - a variable-font bonus; and
 - a penalty for suspiciously small files.
 
+After relevance and these quality scores tie, Moji uses direct-link
+reliability as a final ordering rule: structured registries, raw GitHub files,
+GetFonts, then arbitrary web hosts. This heuristic predicts whether a result is
+likely to remain a usable direct file. It does not change the `trusted` or
+`license` fields and cannot outrank a more relevant or more complete family.
+
 Ranking weights are configurable because a desktop design workflow and a web
 workflow may value formats differently.
 
@@ -43,6 +49,10 @@ Moji groups by normalized family and source. Family mode starts from the
 highest-ranked result, then selects matching family files from that same
 source. This keeps the set coherent and rewards sources that contain several
 weights.
+
+If a member fails byte validation, the whole staged group is discarded before
+Moji tries the next family source. A completed family never combines weights
+from unrelated repositories or hosts.
 
 ## Ranking is guidance, not proof
 

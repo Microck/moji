@@ -96,6 +96,59 @@ func TestRankPrefersRelevantFamilyOverQuality(t *testing.T) {
 	}
 }
 
+func TestRankUsesSourceReliabilityOnlyAsQualityTieBreaker(t *testing.T) {
+	t.Parallel()
+
+	results := []provider.Result{
+		{Filename: "Example-Regular.otf", Format: "otf", Source: "downloads.example.com", URL: "https://downloads.example.com/Example-Regular.otf"},
+		{Filename: "Example-Regular.otf", Format: "otf", Source: "getfonts.cc/example", URL: "https://getfonts.cc/example/Example-Regular.otf"},
+		{Filename: "Example-Regular.otf", Format: "otf", Source: "github.com/example/fonts", URL: "https://raw.githubusercontent.com/example/fonts/main/Example-Regular.otf"},
+		{Filename: "Example-Regular.otf", Format: "otf", Source: "fontsource.org", URL: "https://cdn.jsdelivr.net/fontsource/example/Example-Regular.otf"},
+	}
+
+	ranked := Results(results, "Example", "", DefaultWeights())
+	want := []string{"fontsource.org", "github.com/example/fonts", "getfonts.cc/example", "downloads.example.com"}
+	for index, source := range want {
+		if ranked[index].Source != source {
+			t.Fatalf("ranked[%d].Source = %q, want %q; ranked=%#v", index, ranked[index].Source, source, ranked)
+		}
+	}
+}
+
+func TestRankSourceReliabilityDoesNotOverrideRelevance(t *testing.T) {
+	t.Parallel()
+	results := []provider.Result{
+		{Filename: "Example-Sans-Regular.woff", Format: "woff", Source: "downloads.example.com"},
+		{Filename: "Example-Regular.otf", Format: "otf", Source: "fontsource.org"},
+	}
+
+	if got := Results(results, "Example Sans", "", DefaultWeights())[0].Source; got != "downloads.example.com" {
+		t.Fatalf("best source = %q, want more relevant arbitrary host", got)
+	}
+}
+
+func TestRankSourceReliabilityDoesNotOverrideFamilyCompleteness(t *testing.T) {
+	t.Parallel()
+	results := []provider.Result{
+		{Filename: "Example-Regular.otf", Format: "otf", Weight: "regular", Source: "downloads.example.com"},
+		{Filename: "Example-Bold.otf", Format: "otf", Weight: "bold", Source: "downloads.example.com"},
+		{Filename: "Example-Regular.otf", Format: "otf", Weight: "regular", Source: "fontsource.org"},
+	}
+
+	if got := Results(results, "Example", "", DefaultWeights())[0].Source; got != "downloads.example.com" {
+		t.Fatalf("best source = %q, want source with complete family", got)
+	}
+}
+
+func TestSourceReliabilityIsIndependentFromTrustAndLicense(t *testing.T) {
+	t.Parallel()
+	structured := provider.Result{Source: "fonts.google.com", Trusted: false, License: ""}
+	arbitrary := provider.Result{Source: "downloads.example.com", Trusted: true, License: "OFL-1.1"}
+	if sourceReliability(structured) <= sourceReliability(arbitrary) {
+		t.Fatalf("structured reliability must not derive from Trusted or License")
+	}
+}
+
 func TestRankKeepsOneCharacterSearchCorrection(t *testing.T) {
 	t.Parallel()
 	results := []provider.Result{{Filename: "Bariol Serif.ttf", Source: "search"}}
@@ -184,5 +237,49 @@ func TestGroupsAndFamilySelectionStayWithinBestSource(t *testing.T) {
 	selected := SelectFamily(results, 10)
 	if len(selected) != 2 || selected[1].Source != "best" {
 		t.Fatalf("selected = %#v", selected)
+	}
+}
+
+func TestGroupsDoNotMixSameHostResultsFromDifferentRepositories(t *testing.T) {
+	t.Parallel()
+	results := []provider.Result{
+		{Filename: "Example-Regular.otf", Source: "raw.githubusercontent.com", FamilyGroup: "github.com/one/fonts"},
+		{Filename: "Example-Bold.otf", Source: "raw.githubusercontent.com", FamilyGroup: "github.com/two/fonts"},
+	}
+	groups := Groups(results)
+	if len(groups) != 2 {
+		t.Fatalf("groups = %#v, want separate repository groups", groups)
+	}
+	if selected := SelectFamily(results, 10); len(selected) != 1 {
+		t.Fatalf("selected = %#v, want one repository only", selected)
+	}
+}
+
+func TestGroupsPreferBroaderFamilyCoverageOverSingletonFormat(t *testing.T) {
+	t.Parallel()
+	results := []provider.Result{
+		{Filename: "Example-Regular.otf", Format: "otf", Source: "singleton", Score: 13},
+		{Filename: "Example-Regular.ttf", Format: "ttf", Source: "family", Score: 12},
+		{Filename: "Example-Bold.ttf", Format: "ttf", Source: "family", Score: 11},
+	}
+	groups := Groups(results)
+	if len(groups) != 2 || groups[0].Source != "family" {
+		t.Fatalf("groups = %#v, want broader family first", groups)
+	}
+	selected := SelectFamily(results, 10)
+	if len(selected) != 2 || selected[0].Source != "family" || selected[1].Source != "family" {
+		t.Fatalf("selected = %#v, want the same broader family used by downloads", selected)
+	}
+}
+
+func TestGroupsTreatVariableFontAsCompleteFamily(t *testing.T) {
+	t.Parallel()
+	results := []provider.Result{
+		{Filename: "Example-Regular.otf", Source: "static", Score: 20},
+		{Filename: "Example[wght].ttf", Source: "variable", Variable: true, Score: 10},
+	}
+	groups := Groups(results)
+	if groups[0].Source != "variable" {
+		t.Fatalf("groups = %#v, want variable family first", groups)
 	}
 }

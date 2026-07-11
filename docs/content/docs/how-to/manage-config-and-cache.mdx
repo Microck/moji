@@ -29,7 +29,10 @@ The command prints JSON and redacts a configured GitHub token.
 
 ## Bypass or clear cache
 
-Search results are cached by normalized query, provider, and format set.
+Search results are cached by normalized query, provider, and format set. Moji
+also keeps a separate, bounded URL-health cache for direct links whose bytes
+failed font validation. Health entries expire after 30 days and do not include
+network, HTTP, policy, or filesystem failures.
 
 ```sh
 moji "Inter" --no-cache
@@ -37,4 +40,6 @@ moji cache clear
 ```
 
 Use `--no-cache` when you need a fresh provider response for one invocation.
-Use `cache clear` to remove all saved search responses.
+The safety-oriented URL-health cache still suppresses links already proven to
+return invalid font bytes. Use `moji cache clear` to remove both provider
+responses and URL-health entries.

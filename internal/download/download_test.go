@@ -27,7 +27,7 @@ func TestDownloadExtractsAndValidatesArchiveMember(t *testing.T) {
 	}))
 	defer server.Close()
 	destination := t.TempDir()
-	file, err := (Downloader{Client: server.Client()}).Download(context.Background(), provider.Result{
+	file, err := (Downloader{Client: server.Client(), AllowPrivate: true}).Download(context.Background(), provider.Result{
 		Filename: "Example-Regular.otf", Format: "otf", URL: server.URL, Source: "fixture",
 		ArchiveFormat: "zip", ArchiveMember: "Family/Example-Regular.otf",
 	}, destination)
@@ -37,6 +37,21 @@ func TestDownloadExtractsAndValidatesArchiveMember(t *testing.T) {
 	content, err := os.ReadFile(file.Path)
 	if err != nil || string(content[:4]) != "OTTO" {
 		t.Fatalf("content=%x err=%v", content, err)
+	}
+}
+
+func TestDownloadClassifiesMalformedArchiveAsInvalidContent(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewTLSServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		response.Write([]byte("not a zip archive"))
+	}))
+	defer server.Close()
+	_, err := (Downloader{Client: server.Client(), AllowPrivate: true}).Download(context.Background(), provider.Result{
+		URL: server.URL, Filename: "Example-Regular.otf", Format: "otf",
+		ArchiveFormat: "zip", ArchiveMember: "Example-Regular.otf",
+	}, t.TempDir())
+	if err == nil || !IsInvalidContent(err) || InvalidContentKey(err) != server.URL+"\x00Example-Regular.otf" {
+		t.Fatalf("malformed archive classification = %v", err)
 	}
 }
 
@@ -69,7 +84,7 @@ func TestDownloadValidatesAndDeduplicates(t *testing.T) {
 	}))
 	defer server.Close()
 	destination := t.TempDir()
-	d := Downloader{Client: server.Client()}
+	d := Downloader{Client: server.Client(), AllowPrivate: true}
 	result := provider.Result{URL: server.URL, Source: "fixture", Filename: "../Example.otf", Format: "otf"}
 	first, err := d.Download(context.Background(), result, destination)
 	if err != nil {
@@ -92,9 +107,12 @@ func TestDownloadRejectsInvalidContentWithoutResidue(t *testing.T) {
 	server := httptest.NewTLSServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) { response.Write([]byte("html response")) }))
 	defer server.Close()
 	destination := t.TempDir()
-	_, err := (Downloader{Client: server.Client()}).Download(context.Background(), provider.Result{URL: server.URL, Filename: "bad.ttf", Format: "ttf"}, destination)
+	_, err := (Downloader{Client: server.Client(), AllowPrivate: true}).Download(context.Background(), provider.Result{URL: server.URL, Filename: "bad.ttf", Format: "ttf"}, destination)
 	if err == nil {
 		t.Fatal("expected invalid magic error")
+	}
+	if !IsInvalidContent(err) {
+		t.Fatalf("invalid font content must be classifiable for URL health caching: %v", err)
 	}
 	if !strings.Contains(err.Error(), "No file was saved") || !strings.Contains(err.Error(), "try another source") {
 		t.Fatalf("error does not explain recovery: %v", err)
@@ -102,6 +120,35 @@ func TestDownloadRejectsInvalidContentWithoutResidue(t *testing.T) {
 	entries, readErr := os.ReadDir(destination)
 	if readErr != nil || len(entries) != 0 {
 		t.Fatalf("temporary file left behind: %v, %v", entries, readErr)
+	}
+}
+
+func TestDownloadBatchLeavesDestinationUnchangedWhenAnyFontIsInvalid(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewTLSServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/valid.otf" {
+			response.Write(append([]byte("OTTO"), make([]byte, 32)...))
+			return
+		}
+		response.Write([]byte("not a font"))
+	}))
+	defer server.Close()
+	destination := t.TempDir()
+	marker := filepath.Join(destination, "keep.txt")
+	if err := os.WriteFile(marker, []byte("unchanged"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := (Downloader{Client: server.Client(), AllowPrivate: true}).DownloadBatch(context.Background(), []provider.Result{
+		{URL: server.URL + "/valid.otf", Filename: "Family-Regular.otf", Format: "otf"},
+		{URL: server.URL + "/invalid.otf", Filename: "Family-Bold.otf", Format: "otf"},
+	}, destination)
+	if err == nil || !IsInvalidContent(err) {
+		t.Fatalf("expected classifiable invalid-content failure, got %v", err)
+	}
+	entries, readErr := os.ReadDir(destination)
+	if readErr != nil || len(entries) != 1 || entries[0].Name() != "keep.txt" {
+		t.Fatalf("family failure changed destination: entries=%v err=%v", entries, readErr)
 	}
 }
 
@@ -116,6 +163,18 @@ func TestDownloadRejectsInsecureHTTP(t *testing.T) {
 	}
 }
 
+func TestDownloadRejectsPrivateNetworkDestinations(t *testing.T) {
+	t.Parallel()
+	for _, rawURL := range []string{"https://127.0.0.1/font.ttf", "https://localhost/font.ttf"} {
+		_, err := (Downloader{}).Download(context.Background(), provider.Result{
+			URL: rawURL, Source: "fixture", Filename: "font.ttf", Format: "ttf",
+		}, t.TempDir())
+		if err == nil || !strings.Contains(err.Error(), "non-public address") {
+			t.Fatalf("url=%s err=%v", rawURL, err)
+		}
+	}
+}
+
 func TestDownloadDeduplicatesSameBytesAcrossFilenames(t *testing.T) {
 	t.Parallel()
 	server := httptest.NewTLSServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
@@ -123,7 +182,7 @@ func TestDownloadDeduplicatesSameBytesAcrossFilenames(t *testing.T) {
 	}))
 	defer server.Close()
 	destination := t.TempDir()
-	downloader := Downloader{Client: server.Client()}
+	downloader := Downloader{Client: server.Client(), AllowPrivate: true}
 	first, err := downloader.Download(context.Background(), provider.Result{URL: server.URL, Filename: "First.otf", Format: "otf"}, destination)
 	if err != nil {
 		t.Fatal(err)
@@ -148,7 +207,7 @@ func TestDownloadCapsRedirectsAtFive(t *testing.T) {
 		http.Redirect(response, request, "/next", http.StatusFound)
 	}))
 	defer server.Close()
-	_, err := (Downloader{Client: server.Client()}).Download(context.Background(), provider.Result{URL: server.URL, Filename: "font.otf", Format: "otf"}, t.TempDir())
+	_, err := (Downloader{Client: server.Client(), AllowPrivate: true}).Download(context.Background(), provider.Result{URL: server.URL, Filename: "font.otf", Format: "otf"}, t.TempDir())
 	if err == nil || redirects != 5 {
 		t.Fatalf("redirects=%d err=%v", redirects, err)
 	}
@@ -161,7 +220,7 @@ func TestDownloadRejectsBodyOverMaximumSize(t *testing.T) {
 	}))
 	defer server.Close()
 	destination := t.TempDir()
-	_, err := (Downloader{Client: server.Client(), MaxSize: 16}).Download(context.Background(), provider.Result{URL: server.URL, Filename: "large.otf", Format: "otf"}, destination)
+	_, err := (Downloader{Client: server.Client(), MaxSize: 16, AllowPrivate: true}).Download(context.Background(), provider.Result{URL: server.URL, Filename: "large.otf", Format: "otf"}, destination)
 	if err == nil {
 		t.Fatal("expected maximum-size error")
 	}
@@ -181,8 +240,100 @@ func TestDownloadRejectsHTTPSDowngradeRedirect(t *testing.T) {
 		http.Redirect(response, request, insecure.URL+"/font.otf", http.StatusFound)
 	}))
 	defer secure.Close()
-	_, err := (Downloader{Client: secure.Client()}).Download(context.Background(), provider.Result{URL: secure.URL, Filename: "font.otf", Format: "otf"}, t.TempDir())
+	_, err := (Downloader{Client: secure.Client(), AllowPrivate: true}).Download(context.Background(), provider.Result{URL: secure.URL, Filename: "font.otf", Format: "otf"}, t.TempDir())
 	if err == nil {
 		t.Fatal("expected HTTPS downgrade redirect to be rejected")
+	}
+}
+
+func TestMoveNoReplacePreservesConcurrentDestination(t *testing.T) {
+	t.Parallel()
+	directory := t.TempDir()
+	source := filepath.Join(directory, "source.otf")
+	destination := filepath.Join(directory, "destination.otf")
+	if err := os.WriteFile(source, []byte("source"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(destination, []byte("concurrent"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := moveNoReplace(source, destination); err == nil {
+		t.Fatal("moveNoReplace overwrote an existing destination")
+	}
+	content, err := os.ReadFile(destination)
+	if err != nil || string(content) != "concurrent" {
+		t.Fatalf("destination=%q err=%v", content, err)
+	}
+}
+
+func TestCommitBatchMovesRollsBackAfterLaterCollision(t *testing.T) {
+	t.Parallel()
+	directory := t.TempDir()
+	firstSource := filepath.Join(directory, "first-source.otf")
+	secondSource := filepath.Join(directory, "second-source.otf")
+	firstDestination := filepath.Join(directory, "first.otf")
+	secondDestination := filepath.Join(directory, "second.otf")
+	for path, content := range map[string]string{
+		firstSource: "first", secondSource: "second", secondDestination: "concurrent",
+	} {
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	err := commitBatchMoves([]batchMove{{from: firstSource, to: firstDestination}, {from: secondSource, to: secondDestination}})
+	if err == nil {
+		t.Fatal("expected second move collision")
+	}
+	if _, statErr := os.Stat(firstDestination); !os.IsNotExist(statErr) {
+		t.Fatalf("first family file was not rolled back: %v", statErr)
+	}
+	content, readErr := os.ReadFile(secondDestination)
+	if readErr != nil || string(content) != "concurrent" {
+		t.Fatalf("concurrent file=%q err=%v", content, readErr)
+	}
+}
+
+func TestCommitBatchMovesRollsBackWhenLaterSourceDisappears(t *testing.T) {
+	t.Parallel()
+	directory := t.TempDir()
+	firstSource := filepath.Join(directory, "first-source.otf")
+	firstDestination := filepath.Join(directory, "first.otf")
+	if err := os.WriteFile(firstSource, []byte("first"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := commitBatchMoves([]batchMove{
+		{from: firstSource, to: firstDestination},
+		{from: filepath.Join(directory, "missing.otf"), to: filepath.Join(directory, "second.otf")},
+	})
+	if err == nil {
+		t.Fatal("expected missing staged source error")
+	}
+	if _, statErr := os.Stat(firstDestination); !os.IsNotExist(statErr) {
+		t.Fatalf("first family file was not rolled back: %v", statErr)
+	}
+}
+
+func TestRollbackBatchMovesPreservesReplacedFile(t *testing.T) {
+	t.Parallel()
+	directory := t.TempDir()
+	original := filepath.Join(directory, "original.otf")
+	destination := filepath.Join(directory, "destination.otf")
+	if err := os.WriteFile(original, []byte("original"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	identity, err := os.Stat(original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(destination, []byte("replacement"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err = rollbackBatchMoves([]committedBatchMove{{batchMove: batchMove{to: destination}, identity: identity}})
+	if err == nil {
+		t.Fatal("rollback accepted a replacement file as its own")
+	}
+	content, readErr := os.ReadFile(destination)
+	if readErr != nil || string(content) != "replacement" {
+		t.Fatalf("replacement=%q err=%v", content, readErr)
 	}
 }

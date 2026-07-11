@@ -15,7 +15,7 @@ func TestWebSearchUsesInstalledKagiBackend(t *testing.T) {
 	executable := filepath.Join(t.TempDir(), "kagi")
 	script := `#!/bin/sh
 case "$*" in
-  *"search --format json --error-format json --limit 20 Basier Narrow font otf zip css"*)
+  *"search --format json --error-format json --limit 20 (Basier Narrow font otf zip css) OR"*)
     printf '%s' '{"data":[{"url":"https://github.com/example/fonts/blob/main/BasierNarrow-Regular.otf","title":"Basier Narrow font"},{"url":"https://example.test/fonts/basier-narrow","title":"web page"}]}'
     ;;
   *) exit 2 ;;

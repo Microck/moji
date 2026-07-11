@@ -27,7 +27,7 @@ func TestMojiBinaryEndToEnd(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		binary += ".exe"
 	}
-	build := exec.Command("go", "build", "-o", binary, "../cmd/moji")
+	build := exec.Command("go", "build", "-ldflags=-X=github.com/microck/moji/internal/app.allowPrivateBuild=e2e", "-o", binary, "../cmd/moji")
 	build.Dir = "."
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build binary: %v\n%s", err, output)
