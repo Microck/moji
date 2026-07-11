@@ -1,6 +1,8 @@
 <div align="center">
 
-<img src=".github/assets/moji-logo.svg" alt="moji" width="720">
+<img src=".github/assets/moji-logo.svg" alt="moji" width="480">
+
+<h1>moji</h1>
 
 <p>
   <a href="https://www.npmjs.com/package/@microck/moji"><img src="https://img.shields.io/npm/v/@microck/moji?style=flat-square&color=000000" alt="npm version badge"></a>
