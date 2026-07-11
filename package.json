@@ -1,6 +1,6 @@
 {
   "name": "@microck/moji",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A cozy terminal font finder with safe downloads and script-friendly output.",
   "type": "module",
   "bin": { "moji": "bin/moji.js" },
