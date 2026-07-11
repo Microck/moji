@@ -87,15 +87,30 @@ func (application App) runInteractive(ctx context.Context, current config.Config
 	if err != nil {
 		return application.fail(err, 1)
 	}
-	downloader := download.Downloader{Client: application.Client, AllowInsecure: parsed.allowInsecure}
-	model := tui.NewLiveModel(events, func(result provider.Result) (string, error) {
-		file, err := downloader.Download(ctx, result, expandHome(parsed.downloadDir))
-		return file.Path, err
-	}, colorEnabled(), strings.ToLower(parsed.weight), current.Ranking, parsed.max)
+	model := tui.NewLiveModel(events, application.interactiveDownloader(ctx, parsed), colorEnabled(), strings.ToLower(parsed.weight), current.Ranking, parsed.max)
 	if err := tui.Run(application.Stdin, application.Stdout, model); err != nil {
 		return application.fail(fmt.Errorf("interactive interface: %w", err), 1)
 	}
 	return 0
+}
+
+func (application App) runHome(ctx context.Context, current config.Config, formats []string, parsed options) int {
+	model := tui.NewHomeModel(func(query string) (<-chan provider.Event, error) {
+		events, _, err := application.searchEvents(ctx, current, query, formats, parsed)
+		return events, err
+	}, application.interactiveDownloader(ctx, parsed), colorEnabled(), "", current.Ranking, parsed.max)
+	if err := tui.Run(application.Stdin, application.Stdout, model); err != nil {
+		return application.fail(fmt.Errorf("interactive interface: %w", err), 1)
+	}
+	return 0
+}
+
+func (application App) interactiveDownloader(ctx context.Context, parsed options) tui.DownloadFunc {
+	downloader := download.Downloader{Client: application.Client, AllowInsecure: parsed.allowInsecure}
+	return func(result provider.Result) (string, error) {
+		file, err := downloader.Download(ctx, result, expandHome(parsed.downloadDir))
+		return file.Path, err
+	}
 }
 
 func selectProviders(available map[string]provider.Provider, current config.Config, requested string) ([]provider.Provider, error) {

@@ -6,6 +6,7 @@ description: Commands, flags, output modes, and defaults.
 ## Command grammar
 
 ```text
+moji
 moji <query> [flags]
 moji get <query> [flags]
 moji config [show]
@@ -13,6 +14,12 @@ moji cache clear
 moji --version
 moji --help
 ```
+
+### `moji`
+
+When stdin and stdout are terminals, open the home TUI and wait for a font
+query. In a non-interactive process, print an actionable usage error instead of
+waiting for input.
 
 ### `moji <query>`
 
@@ -43,7 +50,7 @@ Delete cached provider responses and recreate the cache directory.
 | --- | --- | --- | --- |
 | `--format <list>` | `-f` | config default | Comma-separated `otf`, `ttf`, `woff`, or `woff2` |
 | `--weight <name>` | `-w` | any | Keep only a normalized font weight |
-| `--max <count>` | `-n` | 10 search / 1 get | Maximum visible results or downloads |
+| `--max <count>` | `-n` | all in TUI / 10 output / 1 get | Maximum results or downloads |
 | `--provider <list>` | | all enabled | Comma-separated `github`, `getfonts`, or configured `websearch` |
 | `--json` | | off | Print machine-readable JSON |
 | `--dry-run` | | off | Preview a `get` selection without downloading |
@@ -63,9 +70,13 @@ argument or `--flag=value`.
 
 | Key | Action |
 | --- | --- |
+| typed text | Enter a query on the home screen |
+| `enter` | Start the home-screen search or open result details |
 | `up` / `k` | Select previous result |
 | `down` / `j` | Select next result |
-| `enter` | Open result details |
+| `page up` / `page down` | Move by one visible page |
+| `home` / `g` | Select the first result |
+| `end` / `G` | Select the last result |
 | `D` | Download selected result |
 | `/` | Filter loaded results |
 | `f` | Cycle all, OTF, TTF, and WOFF2 |
