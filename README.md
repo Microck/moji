@@ -3,7 +3,7 @@
 <img src=".github/assets/moji-logo.svg" alt="moji" width="720">
 
 <p>
-  <a href="https://github.com/Microck/moji/releases"><img src="https://img.shields.io/github/v/release/Microck/moji?display_name=tag&style=flat-square&label=release&color=000000" alt="release badge"></a>
+  <a href="https://www.npmjs.com/package/@microck/moji"><img src="https://img.shields.io/npm/v/@microck/moji?style=flat-square&color=000000" alt="npm version badge"></a>
   <img src="https://img.shields.io/npm/dt/@microck/moji?style=flat-square&color=000000" alt="npm total downloads badge">
   <img src="https://img.shields.io/badge/platform-linux%20%7C%20macos%20%7C%20windows-000000?style=flat-square" alt="platform badge">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-000000?style=flat-square" alt="MIT license badge"></a>
