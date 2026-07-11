@@ -80,9 +80,10 @@ func redact(message string) string {
 	return message
 }
 
-var helpText = `文字  moji - a cozy terminal font finder
+var helpText = `文字  moji - a terminal font finder
 
 Usage:
+  moji                                 Open the interactive font finder
   moji <query> [flags]                 Search and print ranked results
   moji get <query> [flags]             Download the best matching font
   moji config [show]                   Edit or display configuration
@@ -90,6 +91,7 @@ Usage:
   moji --version
 
 Examples:
+  moji
   moji "Inter"
   moji "Inter" --format otf,ttf --json
   moji get "Inter bold" --dry-run
