@@ -128,6 +128,22 @@ func TestRunGetKeepsCandidatesBeyondRequestedMaximumForFallback(t *testing.T) {
 	}
 }
 
+func TestFamilyDryRunPreviewsTheFirstDownloadGroup(t *testing.T) {
+	t.Parallel()
+	var stdout, stderr bytes.Buffer
+	application := App{Stdout: &stdout, Stderr: &stderr}
+	results := []provider.Result{
+		{Filename: "Example-Regular.otf", Format: "otf", Source: "singleton", Score: 13},
+		{Filename: "Example-Regular.ttf", Format: "ttf", Source: "family", Score: 12},
+		{Filename: "Example-Bold.ttf", Format: "ttf", Source: "family", Score: 11},
+	}
+
+	code := application.runGet(context.Background(), results, options{dryRun: true, max: 10}, true)
+	if code != 0 || strings.Contains(stdout.String(), "singleton") || strings.Count(stdout.String(), "family") != 2 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+}
+
 func serverURL(request *http.Request, path string) string {
 	return "http://" + request.Host + path
 }

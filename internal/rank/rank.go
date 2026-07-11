@@ -473,20 +473,13 @@ func familyGroupOf(result provider.Result) string {
 }
 
 func SelectFamily(results []provider.Result, maximum int) []provider.Result {
-	if len(results) == 0 {
+	groups := Groups(results)
+	if len(groups) == 0 || maximum <= 0 {
 		return nil
 	}
-	best := results[0]
-	bestFamily := ParseFilename(best.Filename).Family
-	bestGroup := familyGroupOf(best)
-	selected := make([]provider.Result, 0, maximum)
-	for _, result := range results {
-		if familyGroupOf(result) == bestGroup && ParseFilename(result.Filename).Family == bestFamily {
-			selected = append(selected, result)
-			if len(selected) == maximum {
-				break
-			}
-		}
+	selected := groups[0].Files
+	if len(selected) > maximum {
+		selected = selected[:maximum]
 	}
 	return selected
 }

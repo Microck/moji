@@ -266,6 +266,10 @@ func TestGroupsPreferBroaderFamilyCoverageOverSingletonFormat(t *testing.T) {
 	if len(groups) != 2 || groups[0].Source != "family" {
 		t.Fatalf("groups = %#v, want broader family first", groups)
 	}
+	selected := SelectFamily(results, 10)
+	if len(selected) != 2 || selected[0].Source != "family" || selected[1].Source != "family" {
+		t.Fatalf("selected = %#v, want the same broader family used by downloads", selected)
+	}
 }
 
 func TestGroupsTreatVariableFontAsCompleteFamily(t *testing.T) {
