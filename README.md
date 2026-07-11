@@ -34,9 +34,9 @@ and arm64. installing Go is not required.
 install with the package manager you already use:
 
 ```bash
-npm install --global @microck/moji
-pnpm add --global @microck/moji
-bun add --global @microck/moji
+npm install -g @microck/moji
+pnpm add -g @microck/moji
+bun add -g @microck/moji
 ```
 
 search for a family:
