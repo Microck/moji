@@ -69,6 +69,7 @@ type Result struct {
 	Variable      bool    `json:"variable,omitempty" yaml:"variable,omitempty"`
 	ArchiveFormat string  `json:"archive_format,omitempty" yaml:"archive_format,omitempty"`
 	ArchiveMember string  `json:"archive_member,omitempty" yaml:"archive_member,omitempty"`
+	Provider      string  `json:"-" yaml:"-"`
 	FamilyGroup   string  `json:"-" yaml:"-"`
 	Score         float64 `json:"score,omitempty" yaml:"score,omitempty"`
 }
@@ -77,7 +78,7 @@ func UniqueResults(results []Result) []Result {
 	seen := make(map[string]bool, len(results))
 	unique := make([]Result, 0, len(results))
 	for _, result := range results {
-		key := resultIdentity(result)
+		key := ResultIdentity(result)
 		if seen[key] {
 			continue
 		}
@@ -87,7 +88,9 @@ func UniqueResults(results []Result) []Result {
 	return unique
 }
 
-func resultIdentity(result Result) string {
+// ResultIdentity returns the same stable key used to deduplicate streamed
+// results, so interactive selections can survive live ranking updates.
+func ResultIdentity(result Result) string {
 	if result.URL != "" {
 		return result.URL + "\x00" + result.ArchiveMember
 	}
