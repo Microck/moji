@@ -1,0 +1,89 @@
+---
+title: Convert font formats
+description: Convert TTF or OTF fonts to WOFF2 and restore WOFF2 fonts locally.
+---
+
+Use `moji convert` to change a local font between its desktop container and
+WOFF2. Conversion runs locally in the CLI and never opens the TUI or contacts a
+font provider.
+
+Moji supports these container changes:
+
+| Input | Output |
+| --- | --- |
+| TTF | WOFF2 |
+| OTF with CFF outlines | WOFF2 |
+| WOFF2 with TrueType outlines | TTF |
+| WOFF2 with CFF outlines | OTF |
+
+## Convert a desktop font to WOFF2
+
+Pass a TTF or OTF file. Moji detects the format from the file content and
+writes the WOFF2 file beside it:
+
+```sh
+moji convert Inter.ttf
+# Converted: Inter.woff2
+
+moji convert SourceSerif.otf
+# Converted: SourceSerif.woff2
+```
+
+Use `--to woff2` when a script should assert the expected target:
+
+```sh
+moji convert Inter.ttf --to woff2
+```
+
+## Restore a WOFF2 font
+
+Pass a WOFF2 file without `--to`. Moji restores the desktop format recorded
+inside the font:
+
+```sh
+moji convert Inter.woff2
+# Converted: Inter.ttf
+
+moji convert SourceSerif.woff2
+# Converted: SourceSerif.otf
+```
+
+The output is TTF for TrueType outlines and OTF for CFF outlines. Moji does not
+convert one outline technology into the other.
+
+## Choose the output path
+
+Create the destination directory, then pass `--output` or `-o`:
+
+```sh
+mkdir -p build/fonts
+moji convert Inter.ttf --output build/fonts/Inter.woff2
+```
+
+Moji never replaces an existing destination. Move or rename that file before
+retrying. On Unix-like systems, the converted file inherits the input file's
+permission bits.
+
+If a mislabeled input already has the target extension, Moji inserts
+`.converted` so it cannot select the input as its own output. For example, TTF
+content stored as `Inter.woff2` becomes `Inter.converted.woff2`.
+
+## Read the result as JSON
+
+Use `--json` when another command or script needs the output path or digest:
+
+```sh
+moji convert Inter.ttf --json | jq '{output, size, sha256}'
+```
+
+The result includes the input and output paths, detected source format, target
+format, byte size, and SHA-256 digest.
+
+## Know the boundaries
+
+Conversion changes the font container without rewriting glyph outlines. Moji
+rejects TTF-to-OTF, OTF-to-TTF, same-format conversion, WOFF1, font
+collections, malformed fonts, and files over the 50 MiB conversion limit.
+
+See the [CLI reference](/docs/reference/cli#moji-convert-input) for the complete
+flag and exit-code contract.
