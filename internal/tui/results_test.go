@@ -236,19 +236,56 @@ func TestSingleFontPreviewScrollsTheSelectedGroup(t *testing.T) {
 	}
 }
 
+func TestPreviewKeysCannotRetargetTheSelectedGroup(t *testing.T) {
+	t.Parallel()
+	var downloaded string
+	model := NewModel([]provider.Result{
+		{Filename: "Alpha-Regular.otf", Format: "otf", Source: "fixture"},
+		{Filename: "Alpha-Bold.otf", Format: "otf", Source: "fixture"},
+		{Filename: "Beta-Regular.otf", Format: "otf", Source: "fixture"},
+	}, func(result provider.Result) (string, error) {
+		downloaded = result.Filename
+		return "/tmp/" + result.Filename, nil
+	}, false)
+	model.resultsWindow.cursor = 1
+	model.screen = screenPreview
+	model.selectAllCurrentGroup()
+	for _, key := range []tea.KeyMsg{
+		{Type: tea.KeyPgUp}, {Type: tea.KeyPgDown}, {Type: tea.KeyHome}, {Type: tea.KeyEnd},
+		{Type: tea.KeyRunes, Runes: []rune{'g'}}, {Type: tea.KeyRunes, Runes: []rune{'G'}},
+		{Type: tea.KeyRunes, Runes: []rune{'f'}}, {Type: tea.KeyRunes, Runes: []rune{'o'}},
+		{Type: tea.KeyRunes, Runes: []rune{'/'}}, {Type: tea.KeyEnter},
+	} {
+		updated, _ := model.Update(key)
+		model = updated.(Model)
+	}
+	if model.resultsWindow.cursor != 1 || model.currentGroup().FamilyName != "beta" {
+		t.Fatalf("preview retargeted cursor=%d group=%q", model.resultsWindow.cursor, model.currentGroup().FamilyName)
+	}
+	updated, command := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'D'}})
+	model = updated.(Model)
+	if command == nil {
+		t.Fatal("preview download command is nil")
+	}
+	model.Update(command())
+	if downloaded != "Beta-Regular.otf" {
+		t.Fatalf("downloaded %q, want previewed Beta-Regular.otf", downloaded)
+	}
+}
+
 func TestRefreshClosesDetailsWhenSelectedResultDisappears(t *testing.T) {
 	t.Parallel()
 	model := NewModel([]provider.Result{{Filename: "Only.ttf", Format: "ttf"}}, nil, false)
 	model.screen = screenPreview
 
-	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'f'}})
-	model = updated.(Model)
+	model.format = "otf"
+	model.refresh()
 	if model.screen == screenPreview || len(model.visible) != 0 {
 		t.Fatalf("screen=%v visible=%d, want closed preview with no results", model.screen, len(model.visible))
 	}
 
 	// Scrolling after the refresh must remain safe when the filtered list is empty.
-	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyDown})
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyDown})
 	model = updated.(Model)
 	if model.resultsWindow.cursor != 0 {
 		t.Fatalf("empty result cursor moved to %d", model.resultsWindow.cursor)

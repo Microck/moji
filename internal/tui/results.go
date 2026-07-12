@@ -235,6 +235,12 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 				model.detailOffset = min(maximum, model.detailOffset+1)
 				return model, nil
 			}
+			switch message.String() {
+			case "D", "esc", "q", "ctrl+c", "H":
+				// These keys are handled by the shared screen actions below.
+			default:
+				return model, nil
+			}
 		}
 		switch message.String() {
 		case "ctrl+c", "q":
