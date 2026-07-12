@@ -261,8 +261,18 @@ func (model ConfigModel) View() string {
 	}
 	contentWidth := min(112, max(1, width-4))
 	bodyHeight := max(1, height-4)
-	start := min(max(0, model.cursor-bodyHeight+2), max(0, len(model.fields)-bodyHeight+1))
-	end := min(len(model.fields), start+bodyHeight-1)
+	compact := contentWidth < 60
+	rowsPerField := 1
+	if compact {
+		rowsPerField = 2
+	}
+	statusRows := 0
+	if model.status != "" {
+		statusRows = 1
+	}
+	visibleFields := max(1, (bodyHeight-statusRows)/rowsPerField)
+	start := min(max(0, model.cursor-visibleFields+1), max(0, len(model.fields)-visibleFields))
+	end := min(len(model.fields), start+visibleFields)
 	lines := make([]string, 0, bodyHeight)
 	for index := start; index < end; index++ {
 		field := model.fields[index]
@@ -285,12 +295,21 @@ func (model ConfigModel) View() string {
 		if index == model.cursor && model.editing {
 			cursor = "_"
 		}
-		line := fmt.Sprintf("%s%-28s %s%s", prefix, field.label, value, cursor)
-		line = truncate(line, contentWidth)
-		if index == model.cursor {
-			line = model.accent.Render(line)
+		if compact {
+			label := truncate(prefix+field.label, contentWidth)
+			valueLine := truncate("    "+value+cursor, contentWidth)
+			if index == model.cursor {
+				label = model.accent.Render(label)
+				valueLine = model.accent.Render(valueLine)
+			}
+			lines = append(lines, label, valueLine)
+		} else {
+			line := truncate(fmt.Sprintf("%s%-28s %s%s", prefix, field.label, value, cursor), contentWidth)
+			if index == model.cursor {
+				line = model.accent.Render(line)
+			}
+			lines = append(lines, line)
 		}
-		lines = append(lines, line)
 	}
 	if model.status != "" {
 		lines = append(lines, model.warning.Render(truncate(model.status, contentWidth)))
@@ -298,9 +317,18 @@ func (model ConfigModel) View() string {
 	for len(lines) < bodyHeight {
 		lines = append(lines, "")
 	}
-	header := truncate(model.faint.Render("(´∀｀)")+"  "+model.brand.Render("文字  moji")+model.faint.Render("  configuration"), contentWidth)
+	header := model.faint.Render("(´∀｀)") + "  " + model.brand.Render("文字  moji") + model.faint.Render("  configuration")
+	if contentWidth < 34 {
+		header = model.brand.Render("moji") + model.faint.Render("  config")
+	}
+	header = truncate(header, contentWidth)
 	rule := model.faint.Render(strings.Repeat("─", contentWidth))
 	help := "up/down: select  enter: edit/toggle  s: save  esc: quit"
+	if contentWidth < 34 {
+		help = "enter edit  s  q"
+	} else if contentWidth < 48 {
+		help = "j/k select  enter edit  s save  q"
+	}
 	block := strings.Join([]string{padRight(header, contentWidth), rule, strings.Join(lines, "\n"), rule, truncate(model.faint.Render(help), contentWidth)}, "\n")
 	padding := max(0, (width-contentWidth)/2)
 	if padding == 0 {

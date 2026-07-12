@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"runtime"
@@ -61,7 +62,9 @@ func (application App) Run(ctx context.Context, args []string) int {
 		return application.fail(err, 1)
 	}
 	if len(args) == 0 {
-		return application.runHome(ctx, current, current.DefaultFormats, options{downloadDir: current.DownloadDir})
+		return runTerminalUI(func() int {
+			return application.runHome(ctx, current, current.DefaultFormats, options{downloadDir: current.DownloadDir})
+		})
 	}
 	if args[0] == "config" {
 		return application.runConfig(current, configPath, args[1:])
@@ -127,7 +130,9 @@ func (application App) Run(ctx context.Context, args []string) int {
 		}
 	}
 	if interactive {
-		return application.runInteractive(ctx, current, query, formats, parsed)
+		return runTerminalUI(func() int {
+			return application.runInteractive(ctx, current, query, formats, parsed)
+		})
 	}
 	results, failures, err := application.search(ctx, current, query, formats, parsed)
 	if err != nil {
@@ -153,6 +158,13 @@ func (application App) Run(ctx context.Context, args []string) int {
 	}
 	application.writeTable(results)
 	return 0
+}
+
+func runTerminalUI(run func() int) int {
+	previous := log.Writer()
+	log.SetOutput(io.Discard)
+	defer log.SetOutput(previous)
+	return run()
 }
 
 func containsHelp(args []string) bool {
