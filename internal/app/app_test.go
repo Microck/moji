@@ -9,12 +9,85 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/microck/moji/internal/cache"
+	"github.com/microck/moji/internal/config"
 	"github.com/microck/moji/internal/provider"
 )
+
+func TestGitHubCLITokenIsAnEphemeralFallback(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the executable fixture uses a POSIX shell")
+	}
+	root := t.TempDir()
+	executable := filepath.Join(root, "gh")
+	fixture := `#!/bin/sh
+test "$GH_PROMPT_DISABLED" = "1" || exit 8
+test "$1" = "auth" || exit 9
+test "$2" = "token" || exit 10
+test "$3" = "--hostname" || exit 11
+test "$4" = "github.com" || exit 12
+printf '  cli-token  '
+`
+	if err := os.WriteFile(executable, []byte(fixture), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", root)
+	t.Setenv("GITHUB_TOKEN", "")
+
+	current := config.Default()
+	resolved := resolveGitHubToken(context.Background(), current, "")
+	if resolved.GitHubToken != "cli-token" {
+		t.Fatalf("resolved token = %q", resolved.GitHubToken)
+	}
+	if current.GitHubToken != "" {
+		t.Fatalf("CLI token mutated the loaded config: %q", current.GitHubToken)
+	}
+}
+
+func TestExplicitGitHubTokensPrecedeGitHubCLI(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	current := config.Default()
+	current.GitHubToken = "config-token"
+	if got := resolveGitHubToken(context.Background(), current, "").GitHubToken; got != "config-token" {
+		t.Fatalf("config token = %q", got)
+	}
+
+	t.Setenv("GITHUB_TOKEN", "environment-token")
+	if got := resolveGitHubToken(context.Background(), current, "").Token(); got != "environment-token" {
+		t.Fatalf("environment token = %q", got)
+	}
+}
+
+func TestGitHubCLITokenRunsOnlyForDefaultSelectedGitHub(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the executable fixture uses a POSIX shell")
+	}
+	root := t.TempDir()
+	marker := filepath.Join(root, "called")
+	executable := filepath.Join(root, "gh")
+	fixture := "#!/bin/sh\nprintf called > '" + marker + "'\nprintf token\n"
+	if err := os.WriteFile(executable, []byte(fixture), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", root)
+	t.Setenv("GITHUB_TOKEN", "")
+
+	current := config.Default()
+	resolveGitHubToken(context.Background(), current, "getfonts")
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("GitHub CLI ran for a getfonts-only search: %v", err)
+	}
+
+	current.Providers["github"] = config.ProviderConfig{Enabled: true, Instance: "https://example.test"}
+	resolveGitHubToken(context.Background(), current, "github")
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("GitHub CLI ran for a custom endpoint: %v", err)
+	}
+}
 
 func TestRunSearchJSONAndGetDownload(t *testing.T) {
 	font := append([]byte("OTTO"), make([]byte, 32)...)

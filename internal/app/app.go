@@ -62,6 +62,7 @@ func (application App) Run(ctx context.Context, args []string) int {
 		return application.fail(err, 1)
 	}
 	if len(args) == 0 {
+		current = resolveGitHubToken(ctx, current, "")
 		return runTerminalUI(func() int {
 			return application.runHome(ctx, current, current.DefaultFormats, options{downloadDir: current.DownloadDir})
 		})
@@ -111,6 +112,7 @@ func (application App) Run(ctx context.Context, args []string) int {
 		}
 		current.GitHubToken = strings.TrimSpace(string(token))
 	}
+	current = resolveGitHubToken(ctx, current, parsed.providers)
 	formats := current.DefaultFormats
 	if parsed.formats != "" {
 		formats, err = config.ParseFormats(parsed.formats)

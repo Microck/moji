@@ -59,8 +59,10 @@ moji get "Futura entire family" --download-dir ~/Downloads/moji
 
 the default GetFonts and registry providers work without an account. GitHub's
 repository, tree, and release search also uses its small unauthenticated
-allowance. set `GITHUB_TOKEN` or `github_token` to add Code Search and higher
-limits. the TUI points this out when GitHub search is limited.
+allowance. Moji automatically uses an existing authenticated `gh` session when
+GitHub CLI is installed. `GITHUB_TOKEN` and `github_token` take precedence and
+also enable Code Search and higher limits. the TUI points this out when GitHub
+search is limited.
 
 the `websearch` provider automatically uses
 [`kagi-cli`](https://github.com/Microck/kagi-cli) when it is installed. Run

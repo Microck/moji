@@ -3,8 +3,22 @@ title: Enable GitHub search
 description: Configure the token required by the GitHub Code Search provider.
 ---
 
-GitHub Code Search requires authentication. Moji does not register the GitHub
-provider until a token or custom endpoint is available.
+GitHub Code Search requires authentication. Without a token, Moji keeps using
+GitHub's bounded unauthenticated repository, tree, and release search.
+
+## Use an existing GitHub CLI login
+
+If GitHub CLI is installed and already authenticated, Moji automatically uses
+its token for GitHub.com:
+
+```sh
+gh auth login
+moji "Futura" --provider github
+```
+
+Moji only reads an existing login with `gh auth token`. It never starts a login
+flow, stores the CLI token in Moji's config, or prints the token. An explicit
+`GITHUB_TOKEN`, `github_token`, or `--token-stdin` value takes precedence.
 
 ## Use an environment variable
 
@@ -49,7 +63,10 @@ stored value.
 
 If Moji reports that GitHub search is not configured:
 
-1. confirm that `GITHUB_TOKEN` is exported in the same shell;
-2. run `moji config show` and confirm that `GitHubToken` is `[redacted]`;
-3. confirm that the token can read public repositories; and
-4. retry with `--provider getfonts` to keep working without GitHub.
+1. run `gh auth status` if GitHub CLI should supply the token;
+2. confirm that `GITHUB_TOKEN` is exported in the same shell when using the
+   environment variable;
+3. run `moji config show` and confirm that `GitHubToken` is `[redacted]` when
+   using the stored token;
+4. confirm that the token can read public repositories; and
+5. retry with `--provider getfonts` to keep working without GitHub.

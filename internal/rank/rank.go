@@ -397,7 +397,9 @@ func ParseIntent(input string) Intent {
 }
 
 type ResultGroup struct {
+	GroupID    string
 	FamilyName string
+	Provider   string
 	Source     string
 	Files      []provider.Result
 	Weights    []string
@@ -425,7 +427,7 @@ func Groups(results []provider.Result) []ResultGroup {
 			}
 			index = len(groups)
 			indices[key] = index
-			groups = append(groups, ResultGroup{FamilyName: tags.Family, Source: result.Source, familyRank: familyRank})
+			groups = append(groups, ResultGroup{GroupID: key, FamilyName: tags.Family, Provider: result.Provider, Source: result.Source, familyRank: familyRank})
 		}
 		group := &groups[index]
 		group.Files = append(group.Files, result)
@@ -501,5 +503,16 @@ func appendUnique(values []string, value string) []string {
 }
 
 func formatValue(format string) int {
-	return map[string]int{"otf": 4, "ttf": 3, "woff2": 2, "woff": 1}[format]
+	order := PreferredFormatOrder(format)
+	if order == 7 {
+		return 0
+	}
+	return 7 - order
+}
+
+func PreferredFormatOrder(format string) int {
+	if order, ok := map[string]int{"otf": 0, "ttf": 1, "dfont": 2, "pfb": 3, "woff2": 4, "woff": 5, "pfm": 6}[strings.ToLower(format)]; ok {
+		return order
+	}
+	return 7
 }

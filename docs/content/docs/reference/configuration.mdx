@@ -86,4 +86,6 @@ providers:
 | `TERM=dumb` | Disable styled terminal output |
 
 Per-invocation flags override general config defaults. Provider availability
-still depends on required credentials and instance settings.
+still depends on required credentials and instance settings. If no explicit
+token is available, Moji uses an existing authenticated GitHub CLI session for
+GitHub.com without saving its token.
