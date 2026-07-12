@@ -4,9 +4,11 @@
 
 :root {
   --color-fd-primary: hsl(31 100% 50%);
+  --font-sans: var(--font-google-sans-flex), ui-sans-serif, system-ui, sans-serif;
 }
 
 html {
+  font-optical-sizing: auto;
   scrollbar-gutter: stable;
 }
 
