@@ -331,36 +331,11 @@ func TestBareNonInteractiveUsageDoesNotDependOnValidConfig(t *testing.T) {
 	}
 }
 
-func TestConfigWithoutEditorProvidesDirectPath(t *testing.T) {
-	root := t.TempDir()
-	path := filepath.Join(root, "config.yaml")
-	t.Setenv("MOJI_CONFIG", path)
-	t.Setenv("EDITOR", "")
+func TestConfigRequiresInteractiveTerminal(t *testing.T) {
+	t.Setenv("MOJI_CONFIG", filepath.Join(t.TempDir(), "config.yaml"))
 	var stderr bytes.Buffer
 	code := (App{Stdout: &bytes.Buffer{}, Stderr: &stderr}).Run(context.Background(), []string{"config"})
-	if code != 1 || !strings.Contains(stderr.String(), "edit "+path+" directly") {
-		t.Fatalf("code=%d error=%q", code, stderr.String())
-	}
-}
-
-func TestParseEditorCommandPreservesArgumentsAndQuotedPaths(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		value string
-		want  []string
-	}{
-		{"code --wait", []string{"code", "--wait"}},
-		{`"/Applications/Visual Studio Code.app/Contents/MacOS/Electron" --wait`, []string{"/Applications/Visual Studio Code.app/Contents/MacOS/Electron", "--wait"}},
-		{`"C:\Program Files\Editor\editor.exe" --wait`, []string{`C:\Program Files\Editor\editor.exe`, "--wait"}},
-	}
-	for _, test := range tests {
-		got, err := parseEditorCommand(test.value)
-		if err != nil {
-			t.Fatalf("parseEditorCommand(%q): %v", test.value, err)
-		}
-		if fmt.Sprint(got) != fmt.Sprint(test.want) {
-			t.Errorf("parseEditorCommand(%q) = %q, want %q", test.value, got, test.want)
-		}
+	if code != 2 || !strings.Contains(stderr.String(), "interactive terminal") || strings.Contains(stderr.String(), "EDITOR") {
+		t.Fatalf("code=%d stderr=%q", code, stderr.String())
 	}
 }
