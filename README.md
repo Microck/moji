@@ -11,6 +11,10 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-000000?style=flat-square" alt="MIT license badge"></a>
 </p>
 
+<a href="docs/public/moji-tui-demo-1080p.mp4">
+  <img src="docs/public/moji-tui-demo-1080p.gif" alt="Moji TUI walkthrough" width="960">
+</a>
+
 </div>
 
 ---
@@ -19,8 +23,6 @@ ask for a font and get the file you actually meant. `moji` searches across font
 sources, ranks candidates by family and filename, and downloads the best match.
 browse interactively with Bubble Tea, pipe a stable table into shell workflows,
 or request JSON for programmatic use.
-
-[watch the 1080p, 60 fps TUI walkthrough](docs/public/moji-tui-demo-1080p.mp4)
 
 ## quick start
 
