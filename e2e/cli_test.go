@@ -72,6 +72,13 @@ func TestMojiBinaryEndToEnd(t *testing.T) {
 			testConversionRoundTrip(t, binary, environment, root, format)
 		})
 	}
+	mislabeledInput := writeConversionFixture(t, root, "ttf", "mislabeled.woff2")
+	mislabeled := exec.Command(binary, "convert", mislabeledInput)
+	mislabeled.Env = environment
+	mislabeledOutput, err := mislabeled.CombinedOutput()
+	if expected := filepath.Join(root, "mislabeled.converted.woff2"); err != nil || string(mislabeledOutput) != "Converted: "+expected+"\n" {
+		t.Fatalf("mislabeled conversion: err=%v output=%s", err, mislabeledOutput)
+	}
 	ttfInput := writeConversionFixture(t, root, "ttf", "unsupported-source.ttf")
 	unsupportedOutput := filepath.Join(root, "unsupported.otf")
 	unsupported := exec.Command(binary, "convert", ttfInput, "--to", "otf", "--output", unsupportedOutput)

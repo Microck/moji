@@ -76,8 +76,11 @@ rejects TTF-to-OTF, OTF-to-TTF, same-format conversions, font collections,
 and unsupported font formats.
 
 Without `--output`, the converted file is written beside the input with the
-target extension. Moji never replaces an existing destination. It writes and
-validates a temporary file before committing the completed output atomically.
+target extension. If the input already uses that extension despite containing
+a different format, Moji inserts `.converted` before the extension. Moji never
+replaces an existing destination. It writes and validates a temporary file
+before committing the completed output atomically. On Unix-like systems, the
+output inherits the input file's permission bits.
 
 Plain output reports `Converted: <path>`. `--json` prints this stable object:
 

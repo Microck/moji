@@ -34,6 +34,7 @@ func TestFontToolsInteroperability(t *testing.T) {
 			fontToolsDecoded := filepath.Join(directory, "fonttools-decoded."+string(format))
 			runFontTools(t, python, "decompress", mojiWOFF2.Output, fontToolsDecoded)
 			assertDetectedFile(t, fontToolsDecoded, format)
+			assertFontSemantics(t, python, source, fontToolsDecoded)
 
 			fontToolsWOFF2 := filepath.Join(directory, "fonttools.woff2")
 			runFontTools(t, python, "compress", source, fontToolsWOFF2)
@@ -42,7 +43,34 @@ func TestFontToolsInteroperability(t *testing.T) {
 				t.Fatal(err)
 			}
 			assertDetectedFile(t, mojiDecoded.Output, format)
+			assertFontSemantics(t, python, source, mojiDecoded.Output)
 		})
+	}
+}
+
+func assertFontSemantics(t *testing.T, python, expected, actual string) {
+	t.Helper()
+	program := `
+import sys
+from fontTools.pens.recordingPen import RecordingPen
+from fontTools.ttLib import TTFont
+
+def snapshot(path):
+    font = TTFont(path, recalcBBoxes=False, recalcTimestamp=False)
+    glyph_set = font.getGlyphSet()
+    outlines = {}
+    for name in font.getGlyphOrder():
+        pen = RecordingPen()
+        glyph_set[name].draw(pen)
+        outlines[name] = pen.value
+    return font.getGlyphOrder(), font.getBestCmap(), outlines
+
+if snapshot(sys.argv[1]) != snapshot(sys.argv[2]):
+    raise SystemExit("glyph order, cmap, or outlines changed")
+`
+	command := exec.Command(python, "-c", program, expected, actual)
+	if result, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("FontTools semantic comparison: %v\n%s", err, result)
 	}
 }
 
