@@ -19,15 +19,18 @@ GetFonts is the zero-configuration default.
 - Name: `github`
 - Default: enabled
 - Authentication: optional; required for Code Search
-- Token sources: `GITHUB_TOKEN`, config, or `--token-stdin`
+- Token sources, in precedence order: `GITHUB_TOKEN`, config or
+  `--token-stdin`, then an existing authenticated GitHub CLI session
 - Queries: adaptive filename and contextual variants within GitHub's remaining allowance
 - Result trust: untrusted
 
 GitHub's general unauthenticated REST allowance does not unlock Code Search;
 the Code Search endpoint returns `Requires authentication`. Without a token,
 Moji skips that guaranteed failure and uses its bounded repository, tree, and
-release search. The TUI home screen explains that `GITHUB_TOKEN` enables code
-search and higher limits.
+release search. When no explicit token exists, Moji reads `gh auth token` if
+GitHub CLI is installed and already authenticated. It does not initiate login
+or persist that token. The TUI home screen explains when GitHub search remains
+limited.
 
 Code Search generates literal TTF and OTF filenames, space, hyphen, underscore,
 and compact filename conventions, then broader contextual forms. Moji reads
