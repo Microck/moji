@@ -77,12 +77,12 @@ func TestMojiBinaryEndToEnd(t *testing.T) {
 		t.Fatalf("non-interactive default returned %d results, want 10: %s", count, searchOutput)
 	}
 
-	interactiveOutput := runTUI(t, binary, []string{"MojiFixture", "--no-cache"}, environment, nil, "Found 12 files in 12 groups")
-	if !bytes.Contains(interactiveOutput, []byte("Found 12 files in 12 groups")) || !bytes.Contains(interactiveOutput, []byte("MojiFixture-Regular.otf")) {
+	interactiveOutput := runTUI(t, binary, []string{"MojiFixture", "--no-cache"}, environment, nil, "12 options  12 files")
+	if !bytes.Contains(interactiveOutput, []byte("12 options  12 files")) || !bytes.Contains(interactiveOutput, []byte("Moji Fixture")) {
 		t.Fatalf("TUI did not render fixture result: %q", interactiveOutput)
 	}
-	homeOutput := runTUI(t, binary, nil, environment, []byte("MojiFixture\r"), "Found 12 files in 12 groups")
-	if !bytes.Contains(homeOutput, []byte("Type a font name")) || !bytes.Contains(homeOutput, []byte("Found 12 files in 12 groups")) {
+	homeOutput := runTUI(t, binary, nil, environment, []byte("MojiFixture\r"), "12 options  12 files")
+	if !bytes.Contains(homeOutput, []byte("Type a font name")) || !bytes.Contains(homeOutput, []byte("12 options  12 files")) {
 		t.Fatalf("home TUI did not transition to results: %q", homeOutput)
 	}
 

@@ -63,6 +63,7 @@ func (model Model) updateHome(message tea.Msg) (tea.Model, tea.Cmd) {
 		model.visible = nil
 		model.resultsWindow.home()
 		model.providerStatus = make(map[string]string)
+		model.providerStates = make(map[string]provider.State)
 		return model, model.waitForEvent()
 	case "backspace":
 		runes := []rune(model.query)

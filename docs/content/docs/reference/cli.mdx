@@ -26,6 +26,19 @@ waiting for input.
 Search enabled providers. When stdin and stdout are terminals, open the live
 TUI. Otherwise print a table. `--json` always prints structured output.
 
+The results TUI keeps the query visible and presents every result as a
+source-bounded family candidate, including candidates that contain only one
+file. The Family, Files, Format, and Provider columns use one grid, and the
+Provider column shows only the provider name. `enter` opens the candidate and
+reveals its individual files. The family preview initially selects the
+highest-ranked file for each normalized weight and posture, so duplicate Bold
+files do not all enter a family download. `a` selects every file when needed;
+`space` toggles individual files. `D` downloads the current selection. The
+default order recommends the strongest match, while the other orders put the
+largest families or preferred formats first. Navigation and the current
+position remain in the footer. Provider details remain available from the
+Health screen instead of occupying settled results.
+
 ### `moji get <query>`
 
 Search, rank, select, and download. A trailing weight is parsed from the query.
@@ -61,7 +74,7 @@ Delete cached provider responses and recreate the cache directory.
 | `--token-stdin` | | off | Read a GitHub token from standard input |
 | `--allow-insecure` | | off | Allow HTTP for a source you explicitly trust |
 | `--help` | `-h` | | Show help and ignore other arguments |
-| `--version` | | | Print `0.2.1` |
+| `--version` | | | Print the installed Moji version |
 
 Flags may appear before or after query words. Values can use a separate
 argument or `--flag=value`.
@@ -77,10 +90,13 @@ argument or `--flag=value`.
 | `page up` / `page down` | Move by one visible page |
 | `home` / `g` | Select the first result |
 | `end` / `G` | Select the last result |
+| `space` | Toggle the active file in a family preview |
+| `a` / `n` | Select all files or clear the selection in a family preview |
 | `D` | Download selected result |
 | `/` | Filter loaded results |
 | `f` | Cycle all, OTF, TTF, and WOFF2 |
-| `tab` / `o` | Cycle score, format, and size sorting |
+| `o` | Cycle best-match, most-files, and preferred-format ordering |
+| `tab` / `H` | Open provider health |
 | `esc` | Close details or exit |
 | `q` / `Ctrl-C` | Exit |
 

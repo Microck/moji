@@ -72,6 +72,7 @@ func (a Aggregator) searchProvider(ctx context.Context, source provider.Provider
 				}
 				if event.Type == provider.EventResult {
 					count++
+					event.Result.Provider = name
 				}
 				event.Provider = name
 				if !emit(ctx, out, event) {
