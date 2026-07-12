@@ -15,6 +15,19 @@ query
   -> validated download
 ```
 
+Local conversion is a separate pipeline:
+
+```text
+local TTF, OTF, or WOFF2
+  -> content-based format detection
+  -> WOFF2 encode or decode
+  -> output validation
+  -> atomic no-replace file commit
+```
+
+It does not enter provider discovery, aggregation, ranking, cache, download,
+or TUI code.
+
 ## Providers own external contracts
 
 Each provider implements the same interface but owns its request format,
@@ -52,7 +65,9 @@ The app package chooses the interface:
 - real stdin and stdout terminals receive the live Bubble Tea interface;
 - redirected output receives a stable table;
 - `--json` receives structured results; and
-- `get` performs non-interactive selection and optional download.
+- `get` performs non-interactive selection and optional download; and
+- `convert` performs non-interactive local font conversion without opening the
+  TUI or loading provider configuration.
 
 Provider failure descriptions and result identity are shared domain rules, so
 all interfaces present consistent outcomes.
@@ -62,3 +77,13 @@ all interfaces present consistent outcomes.
 The download package is the only path that turns a remote result into a final
 file. It validates the transport, content, and destination before an atomic
 rename. Presentation layers only choose a result and report the outcome.
+
+## Conversion owns local font transformation
+
+The font conversion package detects supported containers from their bytes,
+not their filenames. It wraps the WOFF2 codec and permits only container
+changes that preserve the font's TrueType or CFF outline technology.
+
+Conversion and downloads share the same cross-platform no-replace commit
+primitive. Both expose a completed temporary file atomically and refuse to
+replace a path created by another process.
