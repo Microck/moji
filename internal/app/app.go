@@ -42,6 +42,10 @@ func (application App) Run(ctx context.Context, args []string) int {
 	runtime.KeepAlive(ReleaseMarker)
 	application.allowPrivate = application.allowPrivate || allowPrivateBuild == "e2e"
 	application.setDefaults()
+	if len(args) > 0 && args[0] == "convert" && containsHelp(args[1:]) {
+		fmt.Fprint(application.Stdout, convertHelpText)
+		return 0
+	}
 	if containsHelp(args) {
 		fmt.Fprint(application.Stdout, helpText)
 		return 0
@@ -49,6 +53,9 @@ func (application App) Run(ctx context.Context, args []string) int {
 	if len(args) > 0 && args[0] == "--version" {
 		fmt.Fprintln(application.Stdout, Version)
 		return 0
+	}
+	if len(args) > 0 && args[0] == "convert" {
+		return application.runConvert(args[1:])
 	}
 	if len(args) == 0 && (!isTerminal(application.Stdin) || !isTerminal(application.Stdout)) {
 		return application.fail(errors.New("font query is required in non-interactive mode; example: moji \"Futura\""), 2)

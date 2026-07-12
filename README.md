@@ -59,6 +59,19 @@ moji get "Futura bold"
 moji get "Futura entire family" --download-dir ~/Downloads/moji
 ```
 
+convert a local desktop font to WOFF2, or restore a WOFF2 font to the TTF or
+OTF flavor stored inside it:
+
+```bash
+moji convert Inter.ttf
+moji convert Inter.woff2
+moji convert Inter.otf --to woff2 --output build/Inter.woff2
+```
+
+conversion detects the input from its content and never replaces an existing
+output file. it changes the font container without changing TrueType or CFF
+glyph outlines.
+
 ## providers
 
 the default GetFonts and registry providers work without an account. GitHub's
@@ -95,6 +108,7 @@ configured.
 | `moji` | open the home TUI and type a font query |
 | `moji <query>` | search interactively or print a table when piped |
 | `moji get <query>` | rank results and download the best match |
+| `moji convert <input>` | convert TTF/OTF to WOFF2 or restore WOFF2 |
 | `moji config` | create the default config when needed and open `$EDITOR` |
 | `moji config show` | print the current config with its token redacted |
 | `moji cache clear` | remove cached provider results |
@@ -181,7 +195,8 @@ See the [release runbook](docs/release-runbook.md).
 
 the end-to-end suite builds the real binary, searches a controlled HTTP
 provider, downloads a valid fixture font, checks the file on disk, and exercises
-cache clearing.
+cache clearing. conversion tests use FontTools fixtures, and CI runs a pinned
+FontTools interoperability check in both directions.
 
 ## license
 

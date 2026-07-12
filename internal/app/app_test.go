@@ -3,6 +3,8 @@ package app
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -342,6 +344,124 @@ func TestHelpUsesPlainProductDescription(t *testing.T) {
 	if code != 0 || !strings.Contains(stdout.String(), "a terminal font finder") || strings.Contains(stdout.String(), "cozy") {
 		t.Fatalf("code=%d help=%q", code, stdout.String())
 	}
+}
+
+func TestRunConvertsLocalFontWithoutLoadingProviderConfig(t *testing.T) {
+	root := t.TempDir()
+	configPath := filepath.Join(root, "invalid-config.yaml")
+	if err := os.WriteFile(configPath, []byte("not: [valid"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("MOJI_CONFIG", configPath)
+	input := writeConversionFixture(t, root, "test-ttf.base64", "font.bin")
+	output := filepath.Join(root, "converted.woff2")
+	var stdout, stderr bytes.Buffer
+
+	code := (App{Stdout: &stdout, Stderr: &stderr}).Run(context.Background(), []string{"convert", input, "--output", output, "--json"})
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%q", code, stderr.String())
+	}
+	var converted struct {
+		Input        string `json:"input"`
+		Output       string `json:"output"`
+		SourceFormat string `json:"source_format"`
+		TargetFormat string `json:"target_format"`
+		Size         int64  `json:"size"`
+		SHA256       string `json:"sha256"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &converted); err != nil {
+		t.Fatalf("JSON output = %q: %v", stdout.String(), err)
+	}
+	content, err := os.ReadFile(output)
+	if err != nil || !bytes.HasPrefix(content, []byte("wOF2")) {
+		t.Fatalf("output header = %x err=%v", content[:min(4, len(content))], err)
+	}
+	if converted.Input != input || converted.Output != output || converted.SourceFormat != "ttf" || converted.TargetFormat != "woff2" || converted.Size != int64(len(content)) || len(converted.SHA256) != 64 {
+		t.Fatalf("conversion JSON = %#v", converted)
+	}
+}
+
+func TestRunConvertReportsPlainOutputAndInfersDesktopFlavor(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	input := writeConversionFixture(t, root, "test-woff2.base64", "font.webfont")
+	var stdout, stderr bytes.Buffer
+	code := (App{Stdout: &stdout, Stderr: &stderr}).Run(context.Background(), []string{"convert", input})
+	want := strings.TrimSuffix(input, filepath.Ext(input)) + ".ttf"
+	if code != 0 || stderr.Len() != 0 || stdout.String() != "Converted: "+want+"\n" {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+}
+
+func TestRunConvertMapsUsageAndOperationalFailures(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	input := writeConversionFixture(t, root, "test-ttf.base64", "font.ttf")
+	collection := filepath.Join(root, "collection.woff2")
+	if err := os.WriteFile(collection, []byte("wOF2ttcf\x00\x00\x00\x00"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for name, args := range map[string][]string{
+		"missing input":    {"convert"},
+		"unknown flag":     {"convert", input, "--wat"},
+		"unknown target":   {"convert", input, "--to", "woff3"},
+		"unsupported pair": {"convert", input, "--to", "otf"},
+		"WOFF2 collection": {"convert", collection},
+	} {
+		name, args := name, args
+		t.Run(name, func(t *testing.T) {
+			var stderr bytes.Buffer
+			if code := (App{Stdout: &bytes.Buffer{}, Stderr: &stderr}).Run(context.Background(), args); code != 2 || !strings.Contains(stderr.String(), "moji:") {
+				t.Fatalf("code=%d stderr=%q", code, stderr.String())
+			}
+		})
+	}
+	bad := filepath.Join(root, "bad.ttf")
+	if err := os.WriteFile(bad, []byte("not a font"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stderr bytes.Buffer
+	if code := (App{Stdout: &bytes.Buffer{}, Stderr: &stderr}).Run(context.Background(), []string{"convert", bad}); code != 1 {
+		t.Fatalf("invalid font code=%d stderr=%q", code, stderr.String())
+	}
+}
+
+func TestConvertHelpIsCommandSpecific(t *testing.T) {
+	t.Parallel()
+	var stdout bytes.Buffer
+	code := (App{Stdout: &stdout, Stderr: &bytes.Buffer{}}).Run(context.Background(), []string{"convert", "--help"})
+	if code != 0 || !strings.Contains(stdout.String(), "moji convert <input>") || strings.Contains(stdout.String(), "moji cache clear") {
+		t.Fatalf("code=%d help=%q", code, stdout.String())
+	}
+}
+
+func TestParseConvertOptionsAcceptsLongAndEqualsForms(t *testing.T) {
+	t.Parallel()
+	parsed, err := parseConvertOptions([]string{"font.ttf", "--to=woff2", "--output", "font.webfont", "--json"})
+	if err != nil || parsed.input != "font.ttf" || parsed.output != "font.webfont" || parsed.target != "woff2" || !parsed.json {
+		t.Fatalf("parsed=%#v err=%v", parsed, err)
+	}
+	parsed, err = parseConvertOptions([]string{"-o=font.woff2", "font.ttf", "--to", "woff2"})
+	if err != nil || parsed.output != "font.woff2" || parsed.input != "font.ttf" || parsed.target != "woff2" {
+		t.Fatalf("equals parsed=%#v err=%v", parsed, err)
+	}
+}
+
+func writeConversionFixture(t *testing.T, directory, fixture, name string) string {
+	t.Helper()
+	encoded, err := os.ReadFile(filepath.Join("..", "fontconvert", "testdata", fixture))
+	if err != nil {
+		t.Fatal(err)
+	}
+	content, err := base64.StdEncoding.DecodeString(strings.TrimSpace(string(encoded)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(directory, name)
+	if err := os.WriteFile(path, content, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }
 
 func TestTerminalUIOwnsProcessOutputAndRestoresLogger(t *testing.T) {
