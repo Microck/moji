@@ -20,6 +20,8 @@ sources, ranks candidates by family and filename, and downloads the best match.
 browse interactively with Bubble Tea, pipe a stable table into shell workflows,
 or request JSON for programmatic use.
 
+[watch the 1080p, 60 fps TUI walkthrough](docs/public/moji-tui-demo-1080p.mp4)
+
 ## quick start
 
 install with the package manager you already use:
