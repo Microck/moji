@@ -52,6 +52,28 @@ func TestConfigModelMasksTokenAndFitsTerminal(t *testing.T) {
 	}
 }
 
+func TestConfigCompactLayoutPutsValuesBelowLabels(t *testing.T) {
+	model := NewConfigModel(config.Default(), filepath.Join(t.TempDir(), "config.yaml"), false)
+	updated, _ := model.Update(tea.WindowSizeMsg{Width: 40, Height: 16})
+	view := updated.(ConfigModel).View()
+	assertViewFits(t, view, 40, 16)
+	if !strings.Contains(view, "> Download directory\n      /home/") {
+		t.Fatalf("compact config did not give the value its own row:\n%s", view)
+	}
+}
+
+func TestConfigMinimumWidthKeepsHeaderAndActionsVisible(t *testing.T) {
+	model := NewConfigModel(config.Default(), filepath.Join(t.TempDir(), "config.yaml"), false)
+	updated, _ := model.Update(tea.WindowSizeMsg{Width: 24, Height: 8})
+	view := updated.(ConfigModel).View()
+	assertViewFits(t, view, 24, 8)
+	for _, wanted := range []string{"moji  config", "enter edit", "s", "q"} {
+		if !strings.Contains(view, wanted) {
+			t.Fatalf("minimum config omitted %q:\n%s", wanted, view)
+		}
+	}
+}
+
 func TestConfigModelRejectsInvalidValuesWithoutReplacingFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	if err := os.WriteFile(path, []byte("sentinel"), 0o600); err != nil {

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -267,6 +268,27 @@ func TestHelpUsesPlainProductDescription(t *testing.T) {
 	code := (App{Stdout: &stdout, Stderr: &bytes.Buffer{}}).Run(context.Background(), []string{"--help"})
 	if code != 0 || !strings.Contains(stdout.String(), "a terminal font finder") || strings.Contains(stdout.String(), "cozy") {
 		t.Fatalf("code=%d help=%q", code, stdout.String())
+	}
+}
+
+func TestTerminalUIOwnsProcessOutputAndRestoresLogger(t *testing.T) {
+	var logs bytes.Buffer
+	previous := log.Writer()
+	log.SetOutput(&logs)
+	t.Cleanup(func() { log.SetOutput(previous) })
+
+	if code := runTerminalUI(func() int {
+		log.Print("must not corrupt the alternate screen")
+		return 7
+	}); code != 7 {
+		t.Fatalf("terminal callback returned %d", code)
+	}
+	if logs.Len() != 0 {
+		t.Fatalf("log escaped into terminal output: %q", logs.String())
+	}
+	log.Print("restored")
+	if !strings.Contains(logs.String(), "restored") {
+		t.Fatalf("logger output was not restored: %q", logs.String())
 	}
 }
 

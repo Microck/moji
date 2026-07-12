@@ -322,11 +322,19 @@ func (model Model) View() string {
 		return model.viewHome()
 	}
 	if model.screen == screenHealth {
-		return model.chrome("provider health", model.healthBody(), model.healthHelp())
+		context := "provider health"
+		if model.contentWidth() < 34 {
+			context = "health"
+		}
+		return model.chrome(context, model.healthBody(), model.healthHelp())
 	}
 	if model.screen == screenConfirm {
 		body := fmt.Sprintf("\n  Download %d selected files?\n\n  Existing identical files will be reused.", model.selectedCount())
-		return model.chrome("confirm download", body, model.faint.Render("y/enter: download  n/esc: cancel"))
+		context := "confirm download"
+		if model.contentWidth() < 34 {
+			context = "confirm"
+		}
+		return model.chrome(context, body, model.confirmHelp())
 	}
 	if model.screen == screenPreview && len(model.groups) > 0 {
 		if model.previewIsFamily() {
@@ -453,7 +461,11 @@ func (model Model) centerLine(line string, boundaryWidth int) string {
 
 func (model Model) chrome(context, body, help string) string {
 	width := model.contentWidth()
-	header := truncate(model.renderBrand()+model.faint.Render("  "+context), width)
+	header := model.renderBrand() + model.faint.Render("  "+context)
+	if width < 34 {
+		header = model.brand.Render("moji") + model.faint.Render("  "+context)
+	}
+	header = truncate(header, width)
 	rule := model.faint.Render(strings.Repeat("─", width))
 	bodyLines := strings.Split(body, "\n")
 	if body == "" {
@@ -548,6 +560,14 @@ func (model Model) groupRow(group rank.ResultGroup, selected bool) []string {
 		name = titleFamily(name)
 	}
 	formats := strings.ToUpper(strings.Join(group.Formats, "/"))
+	if width < 72 {
+		nameLine := prefix + truncate(name, max(1, width-2))
+		metadata := fmt.Sprintf("  %d files  %s  %s", group.FileCount, model.formatBadge(formats), model.providerTag(group.Source))
+		if selected {
+			return []string{model.accent.Render(truncate(nameLine, width)), model.accent.Render(truncate(metadata, width))}
+		}
+		return []string{truncate(nameLine, width), model.faint.Render(truncate(metadata, width))}
+	}
 	line := fmt.Sprintf("%s%s  %d files  %s  %s", prefix, name, group.FileCount, model.formatBadge(formats), model.providerTag(group.Source))
 	line = truncate(line, width)
 	if selected {
@@ -573,9 +593,9 @@ func (model Model) detailLines(result provider.Result) []string {
 func (model Model) resultsHelp() string {
 	switch {
 	case model.contentWidth() < 34:
-		return model.faint.Render("j/k move  enter open  q")
+		return model.faint.Render("j/k move  enter view  q")
 	case model.contentWidth() < 48:
-		return model.faint.Render("j/k move  enter open  q quit")
+		return model.faint.Render("j/k move  enter view  q quit")
 	case model.contentWidth() < 64:
 		return model.faint.Render("j/k browse  enter preview  / filter  tab health  q quit")
 	case model.contentWidth() < 90:
@@ -766,6 +786,9 @@ func (model Model) downloadSelected() tea.Cmd {
 
 func (model Model) previewContext() string {
 	group := model.currentGroup()
+	if model.contentWidth() < 34 {
+		return fmt.Sprintf("preview %d/%d", model.selectedCount(), len(group.Files))
+	}
 	return fmt.Sprintf("family preview  %d/%d selected", model.selectedCount(), len(group.Files))
 }
 
@@ -794,7 +817,23 @@ func (model Model) familyPreviewBody() string {
 }
 
 func (model Model) familyPreviewHelp() string {
+	if model.contentWidth() < 34 {
+		return model.faint.Render("j/k  space  D  esc")
+	}
+	if model.contentWidth() < 48 {
+		return model.faint.Render("j/k move  space select  D get  esc")
+	}
+	if model.contentWidth() < 72 {
+		return model.faint.Render("j/k browse  space select  D download  esc back")
+	}
 	return model.faint.Render("up/down: browse  space: select  a/n: all/none  D: download  esc: back")
+}
+
+func (model Model) confirmHelp() string {
+	if model.contentWidth() < 34 {
+		return model.faint.Render("y yes  n no")
+	}
+	return model.faint.Render("y/enter: download  n/esc: cancel")
 }
 
 func titleFamily(value string) string {
@@ -854,10 +893,7 @@ func (model Model) healthBody() string {
 	lines = append(lines, model.faint.Render("  Provider        Latest state"), "")
 	for _, name := range names {
 		state := model.providerStatus[name]
-		dot := model.accent.Render("●")
-		if strings.Contains(state, "failed") || strings.Contains(state, "couldn't") {
-			dot = model.warning.Render("●")
-		}
+		dot := model.healthDot(state)
 		lines = append(lines, truncate(fmt.Sprintf("  %s  %-14s %s", dot, name, state), model.contentWidth()))
 	}
 	if model.status != "" {
@@ -866,7 +902,26 @@ func (model Model) healthBody() string {
 	return strings.Join(lines, "\n")
 }
 
+func (model Model) healthDot(state string) string {
+	switch {
+	case strings.HasPrefix(state, "done"):
+		return model.success.Render("●")
+	case strings.Contains(state, "failed"), strings.Contains(state, "couldn't"):
+		return model.danger.Render("●")
+	case strings.Contains(state, "searching"), strings.Contains(state, "rate limited"):
+		return model.warning.Render("●")
+	default:
+		return model.faint.Render("●")
+	}
+}
+
 func (model Model) healthHelp() string {
+	if model.contentWidth() < 34 {
+		return model.faint.Render("r check  tab back  q")
+	}
+	if model.contentWidth() < 48 {
+		return model.faint.Render("r check  tab/esc back  q quit")
+	}
 	return model.faint.Render("r: re-check  tab/esc: results  q: quit")
 }
 

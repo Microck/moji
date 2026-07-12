@@ -174,6 +174,15 @@ func TestResponsiveHelpFitsWithoutLosingCommandsMidLabel(t *testing.T) {
 		if got := lipgloss.Width(model.detailHelp()); got > model.contentWidth() {
 			t.Fatalf("detail help is %d cells in %d available cells", got, model.contentWidth())
 		}
+		if got := lipgloss.Width(model.familyPreviewHelp()); got > model.contentWidth() {
+			t.Fatalf("family preview help is %d cells in %d available cells", got, model.contentWidth())
+		}
+		if got := lipgloss.Width(model.healthHelp()); got > model.contentWidth() {
+			t.Fatalf("health help is %d cells in %d available cells", got, model.contentWidth())
+		}
+		if got := lipgloss.Width(model.confirmHelp()); got > model.contentWidth() {
+			t.Fatalf("confirm help is %d cells in %d available cells", got, model.contentWidth())
+		}
 	}
 }
 
@@ -391,6 +400,27 @@ func TestGroupedResultsOpenSelectableFamilyPreview(t *testing.T) {
 	model = updated.(Model)
 	if model.selectedCount() != 1 || !strings.Contains(model.View(), "1/2 selected") {
 		t.Fatalf("selection did not toggle:\n%s", model.View())
+	}
+}
+
+func TestGroupedResultUsesTwoRowsAtNarrowWidths(t *testing.T) {
+	model := NewModel([]provider.Result{
+		{Filename: "Example-Regular.otf", Format: "otf", Source: "github"},
+		{Filename: "Example-Bold.otf", Format: "otf", Source: "github"},
+	}, nil, false)
+	model = sizedModel(t, model, 60, 20)
+	rows := model.groupRow(model.groups[0], true)
+	if len(rows) != 2 || !strings.Contains(rows[0], "Example") || !strings.Contains(rows[1], "2 files") {
+		t.Fatalf("narrow group rows = %#v", rows)
+	}
+}
+
+func TestVeryNarrowChromePrioritizesContext(t *testing.T) {
+	model := sizedModel(t, NewModel([]provider.Result{{Filename: "Example.otf", Format: "otf"}}, nil, false), 24, 8)
+	view := model.View()
+	assertViewFits(t, view, 24, 8)
+	if !strings.Contains(view, "moji  1 groups") || strings.Contains(view, "文字") {
+		t.Fatalf("narrow header did not prioritize context:\n%s", view)
 	}
 }
 
