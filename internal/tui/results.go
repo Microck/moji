@@ -231,7 +231,7 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 				model.detailOffset = max(0, model.detailOffset-1)
 				return model, nil
 			case "down", "j":
-				maximum := max(0, len(model.detailLines(model.visible[model.resultsWindow.cursor]))-model.bodyHeight())
+				maximum := max(0, len(model.detailLines(model.currentGroup().Files[0]))-model.bodyHeight())
 				model.detailOffset = min(maximum, model.detailOffset+1)
 				return model, nil
 			}

@@ -216,6 +216,26 @@ func TestLongDetailsScrollWithoutChangingSelectedResult(t *testing.T) {
 	}
 }
 
+func TestSingleFontPreviewScrollsTheSelectedGroup(t *testing.T) {
+	t.Parallel()
+	model := NewModel([]provider.Result{
+		{Filename: "Alpha-Regular.otf", Format: "otf", Source: "fixture"},
+		{Filename: "Alpha-Bold.otf", Format: "otf", Source: "fixture"},
+		{Filename: "Beta-Regular.otf", Format: "otf", Source: "fixture", URL: "https://example.test/" + strings.Repeat("beta-path/", 12) + "tail.otf"},
+	}, nil, false)
+	model.resultsWindow.cursor = 1
+	model.screen = screenPreview
+	model = sizedModel(t, model, 40, 10)
+	for range 20 {
+		updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyDown})
+		model = updated.(Model)
+	}
+	view := model.View()
+	if model.detailOffset <= 1 || !strings.Contains(view, "tail.otf") {
+		t.Fatalf("selected Beta details stopped at offset %d:\n%s", model.detailOffset, view)
+	}
+}
+
 func TestRefreshClosesDetailsWhenSelectedResultDisappears(t *testing.T) {
 	t.Parallel()
 	model := NewModel([]provider.Result{{Filename: "Only.ttf", Format: "ttf"}}, nil, false)
