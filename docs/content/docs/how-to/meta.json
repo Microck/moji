@@ -1,5 +1,5 @@
 {
   "title": "How-to guides",
   "icon": "ListChecks",
-  "pages": ["search-and-filter", "github-authentication", "download-families", "automate-with-json", "manage-config-and-cache"]
+  "pages": ["search-and-filter", "github-authentication", "download-families", "convert-font-formats", "automate-with-json", "manage-config-and-cache"]
 }
