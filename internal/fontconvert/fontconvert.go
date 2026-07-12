@@ -3,6 +3,7 @@ package fontconvert
 import (
 	"bytes"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -129,7 +130,7 @@ func Convert(inputPath, outputPath string, requested Format) (Result, error) {
 	if int64(len(converted)) > MaxSize {
 		return Result{}, fmt.Errorf("converted font is larger than the %d-byte conversion limit", MaxSize)
 	}
-	if err := commitOutput(outputPath, converted, target); err != nil {
+	if err := commitOutput(outputPath, converted, target, info.Mode().Perm()); err != nil {
 		return Result{}, err
 	}
 	digest := sha256.Sum256(converted)
@@ -179,6 +180,8 @@ func woff2DesktopFormat(content []byte) (Format, error) {
 		return FormatTTF, nil
 	case "OTTO":
 		return FormatOTF, nil
+	case "ttcf":
+		return "", UnsupportedError{Message: "font collections are not supported; extract one TTF or OTF font before converting"}
 	default:
 		return "", fmt.Errorf("WOFF2 contains unsupported sfntVersion %x", content[4:8])
 	}
@@ -188,9 +191,18 @@ func convertBytes(content []byte, target Format) ([]byte, error) {
 	if target == FormatWOFF2 {
 		return woff2.Encode(content, &woff2.Params{BrotliQuality: 11, AllowTransforms: true})
 	}
+	if len(content) < 20 {
+		return nil, errors.New("WOFF2 content is too short to contain a decoded size")
+	}
+	if decodedSize := int64(binary.BigEndian.Uint32(content[16:20])); decodedSize > MaxSize {
+		return nil, fmt.Errorf("decoded font is larger than the %d-byte conversion limit", MaxSize)
+	}
 	decodedSize, err := woff2.DecodeLength(content)
 	if err != nil {
 		return nil, err
+	}
+	if decodedSize <= 0 {
+		return nil, errors.New("decoded font size is invalid")
 	}
 	if int64(decodedSize) > MaxSize {
 		return nil, fmt.Errorf("decoded font is larger than the %d-byte conversion limit", MaxSize)
@@ -209,7 +221,7 @@ func convertBytes(content []byte, target Format) ([]byte, error) {
 	return decoded, nil
 }
 
-func commitOutput(outputPath string, content []byte, expected Format) error {
+func commitOutput(outputPath string, content []byte, expected Format, mode os.FileMode) error {
 	directory := filepath.Dir(outputPath)
 	temporary, err := os.CreateTemp(directory, ".moji-convert-*.tmp")
 	if err != nil {
@@ -217,7 +229,7 @@ func commitOutput(outputPath string, content []byte, expected Format) error {
 	}
 	temporaryPath := temporary.Name()
 	defer os.Remove(temporaryPath)
-	if err := temporary.Chmod(0o644); err != nil {
+	if err := temporary.Chmod(mode); err != nil {
 		temporary.Close()
 		return fmt.Errorf("set temporary conversion output permissions: %w", err)
 	}
@@ -255,7 +267,11 @@ func defaultOutputPath(inputPath string, target Format) string {
 	if base == "" {
 		base = inputPath
 	}
-	return base + "." + string(target)
+	outputPath := base + "." + string(target)
+	if samePath(inputPath, outputPath) {
+		return base + ".converted." + string(target)
+	}
+	return outputPath
 }
 
 func samePath(first, second string) bool {

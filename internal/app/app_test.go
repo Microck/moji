@@ -397,11 +397,16 @@ func TestRunConvertMapsUsageAndOperationalFailures(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	input := writeConversionFixture(t, root, "test-ttf.base64", "font.ttf")
+	collection := filepath.Join(root, "collection.woff2")
+	if err := os.WriteFile(collection, []byte("wOF2ttcf\x00\x00\x00\x00"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	for name, args := range map[string][]string{
 		"missing input":    {"convert"},
 		"unknown flag":     {"convert", input, "--wat"},
 		"unknown target":   {"convert", input, "--to", "woff3"},
 		"unsupported pair": {"convert", input, "--to", "otf"},
+		"WOFF2 collection": {"convert", collection},
 	} {
 		name, args := name, args
 		t.Run(name, func(t *testing.T) {

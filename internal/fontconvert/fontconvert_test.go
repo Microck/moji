@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -127,6 +129,15 @@ func TestConvertRejectsOversizedInputBeforeReadingIt(t *testing.T) {
 	}
 }
 
+func TestConvertRejectsUnsignedDecodedSizeAboveLimit(t *testing.T) {
+	content := make([]byte, 20)
+	copy(content, "wOF2\x00\x01\x00\x00")
+	binary.BigEndian.PutUint32(content[16:20], 0x80000000)
+	if _, err := convertBytes(content, FormatTTF); err == nil || !strings.Contains(err.Error(), "conversion limit") {
+		t.Fatalf("oversized decoded font error = %v", err)
+	}
+}
+
 func TestConvertRejectsMalformedAndCollectionInputWithoutResidue(t *testing.T) {
 	t.Parallel()
 	for name, test := range map[string]struct {
@@ -135,7 +146,11 @@ func TestConvertRejectsMalformedAndCollectionInputWithoutResidue(t *testing.T) {
 	}{
 		"truncated":  {content: []byte("wOF2")},
 		"collection": {content: []byte("ttcf-not-supported"), unsupported: true},
-		"unknown":    {content: []byte("not a font")},
+		"woff2 collection": {
+			content:     []byte("wOF2ttcf\x00\x00\x00\x00"),
+			unsupported: true,
+		},
+		"unknown": {content: []byte("not a font")},
 	} {
 		name, test := name, test
 		t.Run(name, func(t *testing.T) {
@@ -157,6 +172,41 @@ func TestConvertRejectsMalformedAndCollectionInputWithoutResidue(t *testing.T) {
 				t.Fatalf("failed conversion left residue: entries=%v err=%v", entries, err)
 			}
 		})
+	}
+}
+
+func TestConvertPreservesRestrictiveInputPermissions(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows does not expose Unix permission bits")
+	}
+	directory := t.TempDir()
+	input := writeFixture(t, directory, "test-ttf.base64", "private.ttf")
+	converted, err := Convert(input, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(converted.Output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if actual := info.Mode().Perm(); actual != 0o600 {
+		t.Fatalf("output permissions = %04o; want 0600", actual)
+	}
+}
+
+func TestConvertMislabeledInputUsesNonCollidingDefaultPath(t *testing.T) {
+	directory := t.TempDir()
+	input := writeFixture(t, directory, "test-ttf.base64", "font.woff2")
+	converted, err := Convert(input, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected := filepath.Join(directory, "font.converted.woff2")
+	if converted.Output != expected {
+		t.Fatalf("output = %q; want %q", converted.Output, expected)
+	}
+	if actual, err := Detect(readFile(t, input)); err != nil || actual != FormatTTF {
+		t.Fatalf("input was changed: format = %q, err = %v", actual, err)
 	}
 }
 
@@ -201,6 +251,15 @@ func writeFixture(t *testing.T, directory, fixture, name string) string {
 		t.Fatal(err)
 	}
 	return path
+}
+
+func readFile(t *testing.T, path string) []byte {
+	t.Helper()
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return content
 }
 
 func assertFileIdentity(t *testing.T, converted Result) {
