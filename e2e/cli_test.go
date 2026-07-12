@@ -3,6 +3,8 @@ package e2e
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -64,6 +66,32 @@ func TestMojiBinaryEndToEnd(t *testing.T) {
 	}
 	environment := append(os.Environ(), "MOJI_CONFIG="+configPath, "XDG_CACHE_HOME="+filepath.Join(root, "cache"))
 
+	for _, format := range []string{"ttf", "otf"} {
+		format := format
+		t.Run("convert-"+format, func(t *testing.T) {
+			testConversionRoundTrip(t, binary, environment, root, format)
+		})
+	}
+	mislabeledInput := writeConversionFixture(t, root, "ttf", "mislabeled.woff2")
+	mislabeled := exec.Command(binary, "convert", mislabeledInput)
+	mislabeled.Env = environment
+	mislabeledOutput, err := mislabeled.CombinedOutput()
+	if expected := filepath.Join(root, "mislabeled.converted.woff2"); err != nil || string(mislabeledOutput) != "Converted: "+expected+"\n" {
+		t.Fatalf("mislabeled conversion: err=%v output=%s", err, mislabeledOutput)
+	}
+	ttfInput := writeConversionFixture(t, root, "ttf", "unsupported-source.ttf")
+	unsupportedOutput := filepath.Join(root, "unsupported.otf")
+	unsupported := exec.Command(binary, "convert", ttfInput, "--to", "otf", "--output", unsupportedOutput)
+	unsupported.Env = environment
+	unsupportedMessage, unsupportedErr := unsupported.CombinedOutput()
+	exitError, isExitError := unsupportedErr.(*exec.ExitError)
+	if !isExitError || exitError.ExitCode() != 2 || !bytes.Contains(unsupportedMessage, []byte("changing glyph outlines")) {
+		t.Fatalf("unsupported conversion: err=%v output=%s", unsupportedErr, unsupportedMessage)
+	}
+	if _, err := os.Stat(unsupportedOutput); !os.IsNotExist(err) {
+		t.Fatalf("unsupported conversion left output: %v", err)
+	}
+
 	search := exec.Command(binary, "MojiFixture", "--json", "--no-cache")
 	search.Env = environment
 	searchOutput, err := search.CombinedOutput()
@@ -105,6 +133,60 @@ func TestMojiBinaryEndToEnd(t *testing.T) {
 	if output, err := cacheClear.CombinedOutput(); err != nil || !bytes.Contains(output, []byte("Cleared cache:")) {
 		t.Fatalf("cache clear: %v\n%s", err, output)
 	}
+}
+
+func testConversionRoundTrip(t *testing.T, binary string, environment []string, directory, format string) {
+	t.Helper()
+	input := writeConversionFixture(t, directory, format, "fixture-"+format+"."+format)
+	conversion := exec.Command(binary, "convert", input, "--json")
+	conversion.Env = environment
+	conversionOutput, err := conversion.CombinedOutput()
+	if err != nil {
+		t.Fatalf("convert %s to WOFF2: %v\n%s", format, err, conversionOutput)
+	}
+	var converted struct {
+		Output       string `json:"output"`
+		SourceFormat string `json:"source_format"`
+		TargetFormat string `json:"target_format"`
+	}
+	if err := json.Unmarshal(conversionOutput, &converted); err != nil {
+		t.Fatalf("conversion JSON: %v\n%s", err, conversionOutput)
+	}
+	compressed, err := os.ReadFile(converted.Output)
+	if err != nil || !bytes.HasPrefix(compressed, []byte("wOF2")) || converted.SourceFormat != format || converted.TargetFormat != "woff2" {
+		t.Fatalf("converted=%#v header=%x err=%v", converted, compressed[:min(4, len(compressed))], err)
+	}
+	restoredPath := filepath.Join(directory, "restored."+format)
+	restore := exec.Command(binary, "convert", converted.Output, "--output", restoredPath)
+	restore.Env = environment
+	if output, err := restore.CombinedOutput(); err != nil || !bytes.Contains(output, []byte("Converted: ")) {
+		t.Fatalf("restore %s WOFF2: %v\n%s", format, err, output)
+	}
+	restored, err := os.ReadFile(restoredPath)
+	wantHeader := []byte{0, 1, 0, 0}
+	if format == "otf" {
+		wantHeader = []byte("OTTO")
+	}
+	if err != nil || !bytes.HasPrefix(restored, wantHeader) {
+		t.Fatalf("restored %s header=%x err=%v", format, restored[:min(4, len(restored))], err)
+	}
+}
+
+func writeConversionFixture(t *testing.T, directory, format, name string) string {
+	t.Helper()
+	encoded, err := os.ReadFile(filepath.Join("..", "internal", "fontconvert", "testdata", "test-"+format+".base64"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	content, err := base64.StdEncoding.DecodeString(strings.TrimSpace(string(encoded)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(directory, name)
+	if err := os.WriteFile(path, content, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }
 
 func runTUI(t *testing.T, binary string, args []string, environment []string, input []byte, readyText string) []byte {

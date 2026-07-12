@@ -9,6 +9,7 @@ description: Commands, flags, output modes, and defaults.
 moji
 moji <query> [flags]
 moji get <query> [flags]
+moji convert <input> [--to ttf|otf|woff2] [-o <output>] [--json]
 moji config [show]
 moji cache clear
 moji --version
@@ -45,6 +46,55 @@ Search, rank, select, and download. A trailing weight is parsed from the query.
 The phrases `entire family` and `all weights` select multiple files from the
 best family source.
 
+### `moji convert <input>`
+
+Convert a local desktop font to WOFF2, or restore a WOFF2 font to the desktop
+format recorded inside it. Conversion runs entirely in the CLI. It does not
+load providers, use the result cache, or open the TUI.
+
+```bash
+moji convert Inter.ttf
+moji convert Inter.otf --to woff2
+moji convert Inter.woff2
+moji convert Inter.woff2 --to otf -o build/Inter.otf
+```
+
+TTF and OTF inputs default to WOFF2. WOFF2 input defaults to TTF when it
+contains TrueType outlines and OTF when it contains CFF outlines. `--to`
+asserts an explicit target. Moji detects the source format from the file
+content, not its extension.
+
+| Source | Target |
+| --- | --- |
+| TTF | WOFF2 |
+| OTF | WOFF2 |
+| WOFF2 containing TrueType outlines | TTF |
+| WOFF2 containing CFF outlines | OTF |
+
+Moji changes the container flavor without converting glyph outlines. It
+rejects TTF-to-OTF, OTF-to-TTF, same-format conversions, font collections,
+and unsupported font formats.
+
+Without `--output`, the converted file is written beside the input with the
+target extension. If the input already uses that extension despite containing
+a different format, Moji inserts `.converted` before the extension. Moji never
+replaces an existing destination. It writes and validates a temporary file
+before committing the completed output atomically. On Unix-like systems, the
+output inherits the input file's permission bits.
+
+Plain output reports `Converted: <path>`. `--json` prints this stable object:
+
+```json
+{
+  "input": "Inter.ttf",
+  "output": "Inter.woff2",
+  "source_format": "ttf",
+  "target_format": "woff2",
+  "size": 12345,
+  "sha256": "..."
+}
+```
+
 ### `moji config`
 
 Create the default config when missing, then open it with `$EDITOR`.
@@ -73,6 +123,8 @@ Delete cached provider responses and recreate the cache directory.
 | `--no-cache` | | off | Bypass cached search results |
 | `--token-stdin` | | off | Read a GitHub token from standard input |
 | `--allow-insecure` | | off | Allow HTTP for a source you explicitly trust |
+| `--to <format>` | | inferred | `convert` only: target `ttf`, `otf`, or `woff2` |
+| `--output <path>` | `-o` | beside input | `convert` only: converted font output path |
 | `--help` | `-h` | | Show help and ignore other arguments |
 | `--version` | | | Print the installed Moji version |
 

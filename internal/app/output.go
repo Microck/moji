@@ -90,6 +90,7 @@ Usage:
   moji                                 Open the interactive font finder
   moji <query> [flags]                 Search and print ranked results
   moji get <query> [flags]             Download the best matching font
+  moji convert <input> [flags]          Convert TTF/OTF to or from WOFF2
   moji config [show]                   Edit or display configuration
   moji cache clear                     Clear cached search results
   moji --version
@@ -100,6 +101,7 @@ Examples:
   moji "Futura" --format otf,ttf --json
   moji get "Futura bold" --dry-run
   moji get "Futura bold" --download-dir ~/Downloads/moji
+  moji convert Inter.ttf
 
 Flags:
   -f, --format <list>                  otf, ttf, woff, woff2, dfont, pfb, pfm
@@ -114,5 +116,23 @@ Flags:
       --no-cache                       Bypass the result cache
       --token-stdin                    Read GitHub token from stdin
       --allow-insecure                 Permit explicitly selected HTTP URLs
+  -h, --help                           Show help
+`
+
+var convertHelpText = `文字  moji convert - convert a local font to or from WOFF2
+
+Usage:
+  moji convert <input> [--to ttf|otf|woff2] [-o <output>] [--json]
+
+Examples:
+  moji convert Inter.ttf
+  moji convert Inter.otf --to woff2
+  moji convert Inter.woff2
+  moji convert Inter.woff2 --to otf -o build/Inter.otf
+
+Flags:
+      --to <format>                    Target ttf, otf, or woff2 (inferred by default)
+  -o, --output <path>                  Output path (beside input by default)
+      --json                           Machine-readable conversion details
   -h, --help                           Show help
 `
