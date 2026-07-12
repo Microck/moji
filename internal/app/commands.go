@@ -4,16 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
-	"os/exec"
-	"strings"
-	"unicode"
 
 	"github.com/microck/moji/internal/cache"
 	"github.com/microck/moji/internal/config"
 	"github.com/microck/moji/internal/download"
 	"github.com/microck/moji/internal/provider"
 	"github.com/microck/moji/internal/rank"
+	"github.com/microck/moji/internal/tui"
 )
 
 func (application App) runGet(ctx context.Context, results []provider.Result, parsed options, family bool) int {
@@ -143,115 +140,13 @@ func (application App) runConfig(current config.Config, path string, args []stri
 		}
 		return application.writeJSON(safe)
 	}
-	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
-		if err := config.Save(path, current); err != nil {
-			return application.fail(err, 1)
-		}
+	if !isTerminal(application.Stdin) || !isTerminal(application.Stdout) {
+		return application.fail(errors.New("moji config needs an interactive terminal. Use `moji config show` to inspect the current configuration"), 2)
 	}
-	editorCommand, err := resolveEditorCommand()
-	if err != nil {
-		return application.fail(fmt.Errorf("%w. Set VISUAL or EDITOR to an executable command or edit %s directly", err, path), 1)
-	}
-	command := exec.Command(editorCommand[0], append(editorCommand[1:], path)...)
-	command.Stdin, command.Stdout, command.Stderr = application.Stdin, application.Stdout, application.Stderr
-	if err := command.Run(); err != nil {
-		return application.fail(fmt.Errorf("the editor couldn't open %s: %w. Your config file was not changed by Moji", path, err), 1)
+	if err := tui.RunConfig(application.Stdin, application.Stdout, current, path, colorEnabled()); err != nil {
+		return application.fail(fmt.Errorf("configuration interface: %w", err), 1)
 	}
 	return 0
-}
-
-func resolveEditorCommand() ([]string, error) {
-	if visual := strings.TrimSpace(os.Getenv("VISUAL")); visual != "" {
-		if command, err := resolveConfiguredEditor("VISUAL", visual); err == nil {
-			return command, nil
-		}
-	}
-
-	if editor := strings.TrimSpace(os.Getenv("EDITOR")); editor != "" {
-		if command, err := resolveConfiguredEditor("EDITOR", editor); err == nil {
-			return command, nil
-		}
-	}
-
-	candidates := []string{"sensible-editor", "editor", "nano", "vim", "vi"}
-	for _, candidate := range candidates {
-		command, err := parseEditorCommand(candidate)
-		if err != nil {
-			continue
-		}
-		if _, err := exec.LookPath(command[0]); err == nil {
-			return command, nil
-		}
-	}
-	return nil, errors.New("couldn't find a usable terminal editor in PATH")
-}
-
-func resolveConfiguredEditor(name, value string) ([]string, error) {
-	command, err := parseEditorCommand(value)
-	if err != nil {
-		return nil, fmt.Errorf("the value of $%s is invalid: %w", name, err)
-	}
-	if _, err := exec.LookPath(command[0]); err != nil {
-		return nil, fmt.Errorf("$%s command %q is not available on PATH", name, command[0])
-	}
-	return command, nil
-}
-
-func parseEditorCommand(value string) ([]string, error) {
-	var command []string
-	var current strings.Builder
-	var quote rune
-	tokenStarted := false
-	runes := []rune(value)
-	flush := func() {
-		if tokenStarted {
-			command = append(command, current.String())
-			current.Reset()
-			tokenStarted = false
-		}
-	}
-
-	for index := 0; index < len(runes); index++ {
-		character := runes[index]
-		if quote != 0 {
-			if character == quote {
-				quote = 0
-				continue
-			}
-			// Within double quotes, only escape a quote or another backslash.
-			// This preserves Windows paths such as C:\Program Files\Editor.
-			if character == '\\' && quote == '"' && index+1 < len(runes) && (runes[index+1] == '"' || runes[index+1] == '\\') {
-				index++
-				character = runes[index]
-			}
-			current.WriteRune(character)
-			tokenStarted = true
-			continue
-		}
-
-		switch {
-		case character == '\'' || character == '"':
-			quote = character
-			tokenStarted = true
-		case unicode.IsSpace(character):
-			flush()
-		case character == '\\' && index+1 < len(runes) && (unicode.IsSpace(runes[index+1]) || runes[index+1] == '\'' || runes[index+1] == '"' || runes[index+1] == '\\'):
-			index++
-			current.WriteRune(runes[index])
-			tokenStarted = true
-		default:
-			current.WriteRune(character)
-			tokenStarted = true
-		}
-	}
-	if quote != 0 {
-		return nil, errors.New("the value contains an unterminated quote")
-	}
-	flush()
-	if len(command) == 0 {
-		return nil, errors.New("the value is empty")
-	}
-	return command, nil
 }
 
 func (application App) runCache(args []string) int {

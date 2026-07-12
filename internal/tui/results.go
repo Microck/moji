@@ -16,24 +16,37 @@ import (
 
 type DownloadFunc func(provider.Result) (string, error)
 
+type screen int
+
+const (
+	screenHome screen = iota
+	screenResults
+	screenPreview
+	screenHealth
+	screenConfirm
+)
+
 type Model struct {
-	home           bool
+	screen         screen
 	homeHint       string
 	query          string
 	search         SearchFunc
 	all            []provider.Result
 	visible        []provider.Result
-	cursor         int
+	groups         []rank.ResultGroup
+	resultsWindow  listWindow
+	previewWindow  listWindow
+	selectedFiles  map[int]bool
 	filter         string
 	filtering      bool
 	format         string
 	sortMode       int
-	preview        bool
 	detailOffset   int
 	status         string
 	providerStatus map[string]string
 	events         <-chan provider.Event
 	loading        bool
+	returnScreen   screen
 	wantedWeight   string
 	ranking        rank.Weights
 	maximum        int
@@ -42,13 +55,16 @@ type Model struct {
 	accent         lipgloss.Style
 	faint          lipgloss.Style
 	warning        lipgloss.Style
+	success        lipgloss.Style
+	danger         lipgloss.Style
+	providerStyles map[string]lipgloss.Style
 	width          int
 	height         int
 }
 
 type downloadMessage struct {
-	path string
-	err  error
+	paths []string
+	err   error
 }
 
 type eventMessage struct {
@@ -59,13 +75,23 @@ type eventMessage struct {
 func NewModel(results []provider.Result, downloader DownloadFunc, color bool) Model {
 	model := Model{
 		all: append([]provider.Result(nil), results...), downloader: downloader,
-		format: "all", providerStatus: make(map[string]string), ranking: rank.DefaultWeights(),
+		format: "all", providerStatus: make(map[string]string), ranking: rank.DefaultWeights(), screen: screenResults,
+		selectedFiles: make(map[int]bool),
 	}
 	if color {
 		model.brand = lipgloss.NewStyle().Foreground(lipgloss.Color("#FF8C00")).Bold(true)
 		model.accent = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFA500"))
 		model.faint = lipgloss.NewStyle().Foreground(lipgloss.Color("#666666"))
 		model.warning = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFD75F")).Bold(true)
+		model.success = lipgloss.NewStyle().Foreground(lipgloss.Color("#5FAF5F"))
+		model.danger = lipgloss.NewStyle().Foreground(lipgloss.Color("#D75F5F"))
+		model.providerStyles = map[string]lipgloss.Style{
+			"github":    lipgloss.NewStyle().Foreground(lipgloss.Color("#AF87D7")),
+			"getfonts":  lipgloss.NewStyle().Foreground(lipgloss.Color("#5FAFD7")),
+			"registry":  lipgloss.NewStyle().Foreground(lipgloss.Color("#5FAF87")),
+			"websearch": lipgloss.NewStyle().Foreground(lipgloss.Color("#D7AF5F")),
+			"plugins":   lipgloss.NewStyle().Foreground(lipgloss.Color("#D787AF")),
+		}
 	}
 	model.refresh()
 	return model
@@ -96,7 +122,7 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return model, nil
 	}
-	if model.home {
+	if model.screen == screenHome {
 		return model.updateHome(message)
 	}
 	switch message := message.(type) {
@@ -118,7 +144,10 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		if message.err != nil {
 			model.status = "Download failed: " + message.err.Error()
 		} else {
-			model.status = "Downloaded: " + message.path
+			model.status = fmt.Sprintf("Downloaded %d file(s): %s", len(message.paths), strings.Join(message.paths, ", "))
+		}
+		if model.screen == screenConfirm {
+			model.screen = model.returnScreen
 		}
 		return model, nil
 	case tea.KeyMsg:
@@ -142,13 +171,67 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return model, nil
 		}
-		if model.preview {
+		if model.screen == screenConfirm {
+			switch message.String() {
+			case "y", "Y", "enter":
+				return model, model.downloadSelected()
+			case "n", "N", "esc":
+				model.screen = model.returnScreen
+			}
+			return model, nil
+		}
+		if model.screen == screenHealth {
+			switch message.String() {
+			case "ctrl+c", "q":
+				return model, tea.Quit
+			case "tab", "esc", "H":
+				model.screen = screenResults
+			case "r":
+				if model.search == nil || strings.TrimSpace(model.query) == "" {
+					model.status = "Re-check is available after a search started from the home screen."
+					return model, nil
+				}
+				events, err := model.search(model.query)
+				if err != nil {
+					model.status = "Provider re-check couldn't start: " + err.Error()
+					return model, nil
+				}
+				model.events = events
+				model.loading = true
+				model.providerStatus = make(map[string]string)
+				return model, model.waitForEvent()
+			}
+			return model, nil
+		}
+		if model.screen == screenPreview && model.previewIsFamily() {
+			switch message.String() {
+			case "up", "k":
+				model.previewWindow.move(-1, len(model.currentGroup().Files), model.bodyHeight()-2)
+				return model, nil
+			case "down", "j":
+				model.previewWindow.move(1, len(model.currentGroup().Files), model.bodyHeight()-2)
+				return model, nil
+			case " ":
+				index := model.previewWindow.cursor
+				model.selectedFiles[index] = !model.selectedFiles[index]
+				return model, nil
+			case "a":
+				for index := range model.currentGroup().Files {
+					model.selectedFiles[index] = true
+				}
+				return model, nil
+			case "n":
+				clear(model.selectedFiles)
+				return model, nil
+			}
+		}
+		if model.screen == screenPreview {
 			switch message.String() {
 			case "up", "k":
 				model.detailOffset = max(0, model.detailOffset-1)
 				return model, nil
 			case "down", "j":
-				maximum := max(0, len(model.detailLines(model.visible[model.cursor]))-model.bodyHeight())
+				maximum := max(0, len(model.detailLines(model.visible[model.resultsWindow.cursor]))-model.bodyHeight())
 				model.detailOffset = min(maximum, model.detailOffset+1)
 				return model, nil
 			}
@@ -157,33 +240,45 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+c", "q":
 			return model, tea.Quit
 		case "esc":
-			if model.preview {
-				model.preview = false
+			if model.screen == screenPreview || model.screen == screenHealth {
+				model.screen = screenResults
 				model.detailOffset = 0
+				return model, nil
+			}
+			if model.search != nil {
+				model.screen = screenHome
 				return model, nil
 			}
 			return model, tea.Quit
 		case "up", "k":
-			if model.cursor > 0 {
-				model.cursor--
+			if model.screen != screenResults {
+				break
 			}
+			model.resultsWindow.move(-1, len(model.groups), model.resultPageSize())
 		case "down", "j":
-			if model.cursor+1 < len(model.visible) {
-				model.cursor++
+			if model.screen != screenResults {
+				break
 			}
+			model.resultsWindow.move(1, len(model.groups), model.resultPageSize())
 		case "pgup":
-			model.cursor = max(0, model.cursor-model.resultPageSize())
+			model.resultsWindow.move(-model.resultPageSize(), len(model.groups), model.resultPageSize())
 		case "pgdown":
-			model.cursor = min(max(0, len(model.visible)-1), model.cursor+model.resultPageSize())
+			model.resultsWindow.move(model.resultPageSize(), len(model.groups), model.resultPageSize())
 		case "g", "home":
-			model.cursor = 0
+			model.resultsWindow.home()
 		case "G", "end":
-			model.cursor = max(0, len(model.visible)-1)
+			model.resultsWindow.end(len(model.groups), model.resultPageSize())
 		case "enter":
-			if len(model.visible) > 0 {
-				model.preview = true
+			if len(model.groups) > 0 {
+				model.screen = screenPreview
 				model.detailOffset = 0
+				model.previewWindow.home()
+				model.selectAllCurrentGroup()
 			}
+		case "H":
+			model.screen = screenHealth
+		case "tab":
+			model.screen = screenHealth
 		case "/":
 			model.filtering = true
 		case "f":
@@ -195,30 +290,43 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 			model.refresh()
-		case "tab", "o":
+		case "o":
 			model.sortMode = (model.sortMode + 1) % 3
 			model.refresh()
 		case "D":
-			if len(model.visible) == 0 || model.downloader == nil {
+			if len(model.groups) == 0 || model.downloader == nil {
 				return model, nil
 			}
-			selected := model.visible[model.cursor]
-			model.status = "Downloading " + selected.Filename + "..."
-			return model, func() tea.Msg {
-				path, err := model.downloader(selected)
-				return downloadMessage{path: path, err: err}
+			if model.screen != screenPreview {
+				model.selectedFiles = map[int]bool{0: true}
 			}
+			if model.selectedCount() > 3 {
+				model.returnScreen = model.screen
+				model.screen = screenConfirm
+				return model, nil
+			}
+			return model, model.downloadSelected()
 		}
 	}
 	return model, nil
 }
 
 func (model Model) View() string {
-	if model.home {
+	if model.screen == screenHome {
 		return model.viewHome()
 	}
-	if model.preview && len(model.visible) > 0 {
-		result := model.visible[model.cursor]
+	if model.screen == screenHealth {
+		return model.chrome("provider health", model.healthBody(), model.healthHelp())
+	}
+	if model.screen == screenConfirm {
+		body := fmt.Sprintf("\n  Download %d selected files?\n\n  Existing identical files will be reused.", model.selectedCount())
+		return model.chrome("confirm download", body, model.faint.Render("y/enter: download  n/esc: cancel"))
+	}
+	if model.screen == screenPreview && len(model.groups) > 0 {
+		if model.previewIsFamily() {
+			return model.chrome(model.previewContext(), model.familyPreviewBody(), model.familyPreviewHelp())
+		}
+		result := model.currentGroup().Files[0]
 		lines := model.detailLines(result)
 		maximum := max(0, len(lines)-model.bodyHeight())
 		offset := min(model.detailOffset, maximum)
@@ -247,9 +355,9 @@ func (model Model) resultsContext() string {
 		if model.loading {
 			return fmt.Sprintf("finding %d", len(model.visible))
 		}
-		return fmt.Sprintf("%d results", len(model.visible))
+		return fmt.Sprintf("%d groups", len(model.groups))
 	}
-	return fmt.Sprintf("%s %d results  format:%s  sort:%s", verb, len(model.visible), model.format, model.sortName())
+	return fmt.Sprintf("%s %d files in %d groups  format:%s  sort:%s", verb, len(model.visible), len(model.groups), model.format, model.sortName())
 }
 
 func (model Model) resultsBody() string {
@@ -277,7 +385,7 @@ func (model Model) resultsBody() string {
 	if model.status != "" {
 		remaining--
 	}
-	if len(model.visible) == 0 {
+	if len(model.groups) == 0 {
 		lines = append(lines, "", "  No matching results.")
 	} else if remaining > 0 {
 		lines = append(lines, model.resultWindow(remaining)...)
@@ -364,13 +472,9 @@ func (model Model) resultWindow(height int) []string {
 		rowsPerResult = 2
 	}
 	capacity := max(1, height/rowsPerResult)
-	start := min(max(0, model.cursor-capacity+1), max(0, len(model.visible)-capacity))
-	end := min(len(model.visible), start+capacity)
-	lines := make([]string, 0, height)
-	for index := start; index < end; index++ {
-		lines = append(lines, model.resultRow(model.visible[index], index == model.cursor)...)
-	}
-	return lines
+	return renderWindow(&model.resultsWindow, len(model.groups), capacity, func(index int, selected bool) []string {
+		return model.groupRow(model.groups[index], selected)
+	})
 }
 
 func (model Model) resultPageSize() int {
@@ -409,17 +513,41 @@ func (model Model) resultRow(result provider.Result, selected bool) []string {
 		sourceWidth := min(28, max(12, width/4))
 		nameWidth := max(8, width-2-formatWidth-weightWidth-sourceWidth-6)
 		line := prefix + padRight(truncate(result.Filename, nameWidth), nameWidth) + "  " +
-			padRight(format, formatWidth) + " " +
+			padRight(model.formatBadge(format), formatWidth) + " " +
 			padRight(truncate(displayWeight(result.Weight), weightWidth), weightWidth) + " " +
-			truncate(result.Source, sourceWidth)
+			truncate(model.providerTag(result.Source), sourceWidth)
 		return []string{decorate(line)}
 	}
 	name := prefix + truncate(result.Filename, max(1, width-2))
-	metadata := "  " + format + "  " + displayWeight(result.Weight)
+	metadata := "  " + model.formatBadge(format) + "  " + displayWeight(result.Weight)
 	if width >= 42 && result.Source != "" {
-		metadata += "  " + result.Source
+		metadata += "  " + model.providerTag(result.Source)
 	}
 	return []string{decorate(name), decorate(model.faint.Render(truncate(metadata, width)))}
+}
+
+func (model Model) groupRow(group rank.ResultGroup, selected bool) []string {
+	if group.FileCount == 1 {
+		return model.resultRow(group.Files[0], selected)
+	}
+	width := model.contentWidth()
+	prefix := "  "
+	if selected {
+		prefix = "> "
+	}
+	name := group.FamilyName
+	if name == "" {
+		name = group.Files[0].Filename
+	} else {
+		name = titleFamily(name)
+	}
+	formats := strings.ToUpper(strings.Join(group.Formats, "/"))
+	line := fmt.Sprintf("%s%s  %d files  %s  %s", prefix, name, group.FileCount, model.formatBadge(formats), model.providerTag(group.Source))
+	line = truncate(line, width)
+	if selected {
+		line = model.accent.Render(line)
+	}
+	return []string{line}
 }
 
 func (model Model) detailLines(result provider.Result) []string {
@@ -429,7 +557,7 @@ func (model Model) detailLines(result provider.Result) []string {
 	for index := range nameLines {
 		lines[index] = model.accent.Render(nameLines[index])
 	}
-	fields := [][2]string{{"Format", displayFormat(result)}, {"Weight", displayWeight(result.Weight)}, {"Source", result.Source}, {"License", result.License}, {"URL", result.URL}}
+	fields := [][2]string{{"Format", model.formatBadge(displayFormat(result))}, {"Weight", displayWeight(result.Weight)}, {"Source", model.providerTag(result.Source)}, {"License", model.licenseBadge(result.License)}, {"URL", result.URL}}
 	for _, field := range fields {
 		lines = append(lines, wrapCells(field[0]+": "+field[1], width)...)
 	}
@@ -442,10 +570,12 @@ func (model Model) resultsHelp() string {
 		return model.faint.Render("j/k move  enter open  q")
 	case model.contentWidth() < 48:
 		return model.faint.Render("j/k move  enter open  q quit")
+	case model.contentWidth() < 64:
+		return model.faint.Render("j/k browse  enter preview  / filter  tab health  q quit")
 	case model.contentWidth() < 90:
-		return model.faint.Render("up/down browse  enter details  / filter  q quit")
+		return model.faint.Render("j/k browse  enter preview  D get  / filter  tab health  q quit")
 	default:
-		return model.faint.Render("up/down: browse  pgup/dn: page  enter: details  D: download  /: filter  f: format  tab: sort  q: quit")
+		return model.faint.Render("up/down: browse  pgup/dn: page  enter: preview  D: download  /: filter  f: format  o: sort  tab: health  q: quit")
 	}
 }
 
@@ -496,9 +626,16 @@ func wrapCells(value string, width int) []string {
 		}
 		if cut == 0 {
 			_, cut = utf8.DecodeRuneInString(value)
+		} else if cut < len(value) {
+			// Prefer the last word boundary that still uses most of the row. This
+			// avoids visibly splitting prose such as provider warnings while still
+			// allowing long URLs and filenames to make progress.
+			if boundary := strings.LastIndexByte(value[:cut], ' '); boundary >= cut/2 {
+				cut = boundary + 1
+			}
 		}
-		lines = append(lines, value[:cut])
-		value = value[cut:]
+		lines = append(lines, strings.TrimRight(value[:cut], " "))
+		value = strings.TrimLeft(value[cut:], " ")
 	}
 	if len(lines) == 0 {
 		return []string{""}
@@ -560,13 +697,171 @@ func (model *Model) refresh() {
 	case 2:
 		sort.SliceStable(model.visible, func(i, j int) bool { return model.visible[i].SizeBytes < model.visible[j].SizeBytes })
 	}
-	if model.cursor >= len(model.visible) {
-		model.cursor = max(0, len(model.visible)-1)
-	}
+	model.groups = rank.Groups(model.visible)
+	model.resultsWindow.clamp(len(model.groups), model.resultPageSize())
 	if len(model.visible) == 0 {
-		model.preview = false
+		if model.screen == screenPreview {
+			model.screen = screenResults
+		}
 		model.detailOffset = 0
 	}
+}
+
+func (model Model) currentGroup() rank.ResultGroup {
+	if len(model.groups) == 0 {
+		return rank.ResultGroup{}
+	}
+	index := min(len(model.groups)-1, max(0, model.resultsWindow.cursor))
+	return model.groups[index]
+}
+
+func (model Model) previewIsFamily() bool { return len(model.currentGroup().Files) > 1 }
+
+func (model *Model) selectAllCurrentGroup() {
+	model.selectedFiles = make(map[int]bool, len(model.currentGroup().Files))
+	for index := range model.currentGroup().Files {
+		model.selectedFiles[index] = true
+	}
+}
+
+func (model Model) selectedCount() int {
+	count := 0
+	for index := range model.currentGroup().Files {
+		if model.selectedFiles[index] {
+			count++
+		}
+	}
+	return count
+}
+
+func (model Model) downloadSelected() tea.Cmd {
+	group := model.currentGroup()
+	selected := make([]provider.Result, 0, len(group.Files))
+	for index, result := range group.Files {
+		if model.selectedFiles[index] {
+			selected = append(selected, result)
+		}
+	}
+	if len(selected) == 0 {
+		return nil
+	}
+	return func() tea.Msg {
+		paths := make([]string, 0, len(selected))
+		for _, result := range selected {
+			path, err := model.downloader(result)
+			if err != nil {
+				return downloadMessage{paths: paths, err: err}
+			}
+			paths = append(paths, path)
+		}
+		return downloadMessage{paths: paths}
+	}
+}
+
+func (model Model) previewContext() string {
+	group := model.currentGroup()
+	return fmt.Sprintf("family preview  %d/%d selected", model.selectedCount(), len(group.Files))
+}
+
+func (model Model) familyPreviewBody() string {
+	group := model.currentGroup()
+	available := max(1, model.bodyHeight()-2)
+	lines := []string{truncate(fmt.Sprintf("  %s  %s", titleFamily(group.FamilyName), model.providerTag(group.Source)), model.contentWidth()), ""}
+	lines = append(lines, renderWindow(&model.previewWindow, len(group.Files), available, func(index int, active bool) []string {
+		result := group.Files[index]
+		check := "[ ]"
+		if model.selectedFiles[index] {
+			check = "[x]"
+		}
+		prefix := "  "
+		if active {
+			prefix = "> "
+		}
+		line := fmt.Sprintf("%s%s %s  %s  %s", prefix, check, result.Filename, model.formatBadge(displayFormat(result)), displayWeight(result.Weight))
+		line = truncate(line, model.contentWidth())
+		if active {
+			line = model.accent.Render(line)
+		}
+		return []string{line}
+	})...)
+	return strings.Join(lines, "\n")
+}
+
+func (model Model) familyPreviewHelp() string {
+	return model.faint.Render("up/down: browse  space: select  a/n: all/none  D: download  esc: back")
+}
+
+func titleFamily(value string) string {
+	words := strings.Fields(value)
+	for index, word := range words {
+		runes := []rune(word)
+		if len(runes) > 0 {
+			runes[0] = []rune(strings.ToUpper(string(runes[0])))[0]
+			words[index] = string(runes)
+		}
+	}
+	return strings.Join(words, " ")
+}
+
+func (model Model) providerTag(source string) string {
+	name := strings.ToLower(source)
+	for _, providerName := range []string{"github", "getfonts", "registry", "websearch", "plugins"} {
+		if strings.Contains(name, providerName) {
+			label := "[" + providerName + "]"
+			if style, ok := model.providerStyles[providerName]; ok {
+				return style.Render(label)
+			}
+			return label
+		}
+	}
+	return source
+}
+
+func (model Model) formatBadge(format string) string {
+	return model.faint.Render("[" + strings.ToLower(format) + "]")
+}
+
+func (model Model) licenseBadge(license string) string {
+	if license == "" {
+		return model.warning.Render("unknown")
+	}
+	lower := strings.ToLower(license)
+	if strings.Contains(lower, "ofl") || strings.Contains(lower, "apache") {
+		return model.success.Render(license)
+	}
+	if strings.Contains(lower, "commercial") || strings.Contains(lower, "personal") {
+		return model.danger.Render(license)
+	}
+	return model.warning.Render(license)
+}
+
+func (model Model) healthBody() string {
+	if len(model.providerStatus) == 0 {
+		return "\n  No provider activity yet. Start a search to collect health information."
+	}
+	names := make([]string, 0, len(model.providerStatus))
+	for name := range model.providerStatus {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	lines := make([]string, 0, len(names)+2)
+	lines = append(lines, model.faint.Render("  Provider        Latest state"), "")
+	for _, name := range names {
+		state := model.providerStatus[name]
+		dot := model.accent.Render("●")
+		if strings.Contains(state, "failed") || strings.Contains(state, "couldn't") {
+			dot = model.warning.Render("●")
+		}
+		lines = append(lines, truncate(fmt.Sprintf("  %s  %-14s %s", dot, name, state), model.contentWidth()))
+	}
+	if model.status != "" {
+		lines = append(lines, "", model.warning.Render(truncate(model.status, model.contentWidth())))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func (model Model) healthHelp() string {
+	return model.faint.Render("r: re-check  tab/esc: results  q: quit")
 }
 
 func (model Model) sortName() string {

@@ -23,7 +23,7 @@ var mojiWordmark = []string{
 
 func NewHomeModel(search SearchFunc, downloader DownloadFunc, color bool, wantedWeight string, ranking rank.Weights, maximum int, homeHint string) Model {
 	model := NewModel(nil, downloader, color)
-	model.home = true
+	model.screen = screenHome
 	model.search = search
 	model.wantedWeight = wantedWeight
 	model.ranking = ranking
@@ -55,13 +55,13 @@ func (model Model) updateHome(message tea.Msg) (tea.Model, tea.Cmd) {
 			model.status = "Search couldn't start: " + err.Error()
 			return model, nil
 		}
-		model.home = false
+		model.screen = screenResults
 		model.loading = true
 		model.events = events
 		model.status = ""
 		model.all = nil
 		model.visible = nil
-		model.cursor = 0
+		model.resultsWindow.home()
 		model.providerStatus = make(map[string]string)
 		return model, model.waitForEvent()
 	case "backspace":
