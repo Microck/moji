@@ -44,6 +44,7 @@ type Model struct {
 	detailOffset   int
 	status         string
 	providerStatus map[string]string
+	providerStates map[string]provider.State
 	events         <-chan provider.Event
 	loading        bool
 	returnScreen   screen
@@ -57,6 +58,8 @@ type Model struct {
 	warning        lipgloss.Style
 	success        lipgloss.Style
 	danger         lipgloss.Style
+	secondary      lipgloss.Style
+	selection      lipgloss.Style
 	providerStyles map[string]lipgloss.Style
 	width          int
 	height         int
@@ -72,19 +75,29 @@ type eventMessage struct {
 	open  bool
 }
 
+type previewSnapshot struct {
+	groupID, activeFile string
+	selectedFiles       map[string]bool
+}
+
 func NewModel(results []provider.Result, downloader DownloadFunc, color bool) Model {
 	model := Model{
 		all: append([]provider.Result(nil), results...), downloader: downloader,
-		format: "all", providerStatus: make(map[string]string), ranking: rank.DefaultWeights(), screen: screenResults,
+		format: "all", providerStatus: make(map[string]string), providerStates: make(map[string]provider.State), ranking: rank.DefaultWeights(), screen: screenResults,
 		selectedFiles: make(map[int]bool),
+		selection:     lipgloss.NewStyle().Reverse(true),
 	}
 	if color {
 		model.brand = lipgloss.NewStyle().Foreground(lipgloss.Color("#FF8C00")).Bold(true)
 		model.accent = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFA500"))
-		model.faint = lipgloss.NewStyle().Foreground(lipgloss.Color("#666666"))
+		model.faint = lipgloss.NewStyle().Foreground(lipgloss.Color("#858585"))
+		model.secondary = lipgloss.NewStyle().Foreground(lipgloss.Color("#B0B0B0"))
 		model.warning = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFD75F")).Bold(true)
 		model.success = lipgloss.NewStyle().Foreground(lipgloss.Color("#5FAF5F"))
 		model.danger = lipgloss.NewStyle().Foreground(lipgloss.Color("#D75F5F"))
+		model.selection = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FFA500")).
+			Bold(true)
 		model.providerStyles = map[string]lipgloss.Style{
 			"github":    lipgloss.NewStyle().Foreground(lipgloss.Color("#AF87D7")),
 			"getfonts":  lipgloss.NewStyle().Foreground(lipgloss.Color("#5FAFD7")),
@@ -134,10 +147,12 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		event := message.event
 		if event.Type == provider.EventResult {
+			event.Result.Provider = event.Provider
 			model.all = provider.UniqueResults(append(model.all, event.Result))
 			model.refresh()
 		} else {
 			model.providerStatus[event.Provider] = eventStatus(event)
+			model.providerStates[event.Provider] = event.Status
 		}
 		return model, model.waitForEvent()
 	case downloadMessage:
@@ -199,6 +214,7 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 				model.events = events
 				model.loading = true
 				model.providerStatus = make(map[string]string)
+				model.providerStates = make(map[string]provider.State)
 				return model, model.waitForEvent()
 			}
 			return model, nil
@@ -216,9 +232,7 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 				model.selectedFiles[index] = !model.selectedFiles[index]
 				return model, nil
 			case "a":
-				for index := range model.currentGroup().Files {
-					model.selectedFiles[index] = true
-				}
+				model.selectAllCurrentGroup()
 				return model, nil
 			case "n":
 				clear(model.selectedFiles)
@@ -279,7 +293,7 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 				model.screen = screenPreview
 				model.detailOffset = 0
 				model.previewWindow.home()
-				model.selectAllCurrentGroup()
+				model.selectRecommendedCurrentGroup()
 			}
 		case "H":
 			model.screen = screenHealth
@@ -361,40 +375,14 @@ func (model Model) View() string {
 }
 
 func (model Model) resultsContext() string {
-	verb := "Found"
-	if model.loading {
-		verb = "Finding"
+	if model.contentWidth() < 34 {
+		return "results"
 	}
-	if model.contentWidth() < 48 {
-		if model.loading {
-			return fmt.Sprintf("finding %d", len(model.visible))
-		}
-		return fmt.Sprintf("%d groups", len(model.groups))
-	}
-	return fmt.Sprintf("%s %d files in %d groups  format:%s  sort:%s", verb, len(model.visible), len(model.groups), model.format, model.sortName())
+	return "search results"
 }
 
 func (model Model) resultsBody() string {
-	lines := make([]string, 0, model.bodyHeight())
-	if len(model.providerStatus) > 0 {
-		names := make([]string, 0, len(model.providerStatus))
-		for name := range model.providerStatus {
-			names = append(names, name)
-		}
-		sort.Strings(names)
-		statuses := make([]string, 0, len(names))
-		for _, name := range names {
-			statuses = append(statuses, name+": "+model.providerStatus[name])
-		}
-		lines = append(lines, model.faint.Render(truncate(strings.Join(statuses, "  "), model.contentWidth())))
-	}
-	if model.filtering || model.filter != "" {
-		cursor := ""
-		if model.filtering {
-			cursor = "_"
-		}
-		lines = append(lines, truncate("Filter: "+model.filter+cursor, model.contentWidth()))
-	}
+	lines := model.resultsPrelude()
 	remaining := model.bodyHeight() - len(lines)
 	if model.status != "" {
 		remaining--
@@ -410,11 +398,118 @@ func (model Model) resultsBody() string {
 	return strings.Join(lines, "\n")
 }
 
+func (model Model) resultsPrelude() []string {
+	query := model.query
+	if query == "" {
+		query = "all fonts"
+	}
+	lines := []string{truncate(model.faint.Render("Query  ")+model.secondary.Render(query), model.contentWidth())}
+	compactFilter := model.bodyHeight() < 6 && (model.filtering || model.filter != "")
+	compactStatus := model.bodyHeight() < 6 && model.status != ""
+	if !compactFilter && !compactStatus {
+		lines = append(lines, model.resultsToolbar())
+	}
+	if model.bodyHeight() >= 7 {
+		if recommendation := model.resultsRecommendation(); recommendation != "" {
+			lines = append(lines, recommendation)
+		}
+	}
+	if model.loading && model.bodyHeight() >= 7 {
+		if progress := model.providerProgress(); progress != "" {
+			lines = append(lines, model.warning.Render(progress))
+		}
+	} else if model.bodyHeight() >= 7 {
+		attention := model.providerAttention()
+		if attention != "" {
+			lines = append(lines, model.warning.Render(attention))
+		}
+	}
+	if model.filtering || model.filter != "" {
+		cursor := ""
+		if model.filtering {
+			cursor = "_"
+		}
+		lines = append(lines, truncate("Filter  "+model.filter+cursor, model.contentWidth()))
+	}
+	if len(model.groups) > 0 && !newResultsLayout(model.contentWidth()).stacked && model.bodyHeight()-len(lines) >= 2 {
+		lines = append(lines, model.resultsHeading())
+	}
+	return lines
+}
+
+func (model Model) resultsToolbar() string {
+	left := fmt.Sprintf("%d options  %d files", len(model.groups), len(model.visible))
+	if model.contentWidth() < 52 {
+		return model.secondary.Render(truncate(left, model.contentWidth()))
+	}
+	right := fmt.Sprintf("Format %s  Order %s", displayFormatFilter(model.format), displaySort(model.sortName()))
+	return model.secondary.Render(joinSides(left, right, model.contentWidth()))
+}
+
+func (model Model) resultsRecommendation() string {
+	if model.sortMode != 0 || len(model.groups) == 0 {
+		return ""
+	}
+	group := model.groups[0]
+	format := strings.ToUpper(strings.Join(group.Formats, "/"))
+	label := "Recommended"
+	if model.loading {
+		label = "Best so far"
+	}
+	description := ""
+	if group.FileCount > 1 {
+		description = fmt.Sprintf("%d-file %s family - match + coverage", group.FileCount, format)
+	} else {
+		description = fmt.Sprintf("%s file - strongest match", format)
+	}
+	if model.contentWidth() < 52 {
+		if !model.loading {
+			label = "Best"
+		}
+		if group.FileCount > 1 {
+			description = fmt.Sprintf("%d-file family", group.FileCount)
+		} else {
+			description = format + " file"
+		}
+	}
+	return truncate(model.accent.Render(label)+model.secondary.Render("  "+description+"  ")+model.providerTag(group.Provider), model.contentWidth())
+}
+
+func (model Model) providerProgress() string {
+	if len(model.providerStates) == 0 {
+		return "Searching providers"
+	}
+	finished := 0
+	for _, state := range model.providerStates {
+		if state == provider.StateDone || state == provider.StateFailed {
+			finished++
+		}
+	}
+	return fmt.Sprintf("Searching providers  %d/%d finished", finished, len(model.providerStates))
+}
+
+func (model Model) providerAttention() string {
+	count := 0
+	for _, state := range model.providerStates {
+		if state == provider.StateFailed || state == provider.StateThrottled {
+			count++
+		}
+	}
+	if count == 0 {
+		return ""
+	}
+	noun := "providers need"
+	if count == 1 {
+		noun = "provider needs"
+	}
+	return fmt.Sprintf("%d %s attention - open Health", count, noun)
+}
+
 func (model Model) renderBrand() string {
 	return model.faint.Render("(´∀｀)") + "  " + model.brand.Render("文字  moji")
 }
 
-const maxContentWidth = 112
+const maxContentWidth = 118
 
 func (model Model) termWidth() int {
 	if model.width <= 0 {
@@ -432,7 +527,10 @@ func (model Model) termHeight() int {
 
 func (model Model) contentWidth() int {
 	width := model.termWidth()
-	if width >= 32 {
+	switch {
+	case width >= 80:
+		width -= 8
+	case width >= 32:
 		width -= 4
 	}
 	return min(maxContentWidth, max(1, width))
@@ -478,102 +576,201 @@ func (model Model) chrome(context, body, help string) string {
 		bodyLines = append(bodyLines, "")
 	}
 	for index := range bodyLines {
-		bodyLines[index] = truncate(bodyLines[index], width)
+		bodyLines[index] = padRight(truncate(bodyLines[index], width), width)
 	}
-	parts := []string{padRight(header, width), rule, strings.Join(bodyLines, "\n"), rule, truncate(help, width)}
+	parts := []string{padRight(header, width), rule, strings.Join(bodyLines, "\n"), rule, padRight(truncate(help, width), width)}
 	return model.center(strings.Join(parts, "\n"))
 }
 
+type resultsLayout struct {
+	stacked                                         bool
+	nameWidth, countWidth, formatWidth, sourceWidth int
+}
+
+type previewLayout struct {
+	stacked                             bool
+	nameWidth, formatWidth, weightWidth int
+}
+
+func newResultsLayout(width int) resultsLayout {
+	layout := resultsLayout{stacked: width < 52, countWidth: 5, formatWidth: 9}
+	if layout.stacked {
+		return layout
+	}
+	layout.sourceWidth = 10
+	// Two cells are reserved for the cursor and three spaces separate the four
+	// columns. The family name absorbs every remaining cell.
+	layout.nameWidth = max(8, width-2-layout.countWidth-layout.formatWidth-layout.sourceWidth-3)
+	return layout
+}
+
+func newPreviewLayout(width int) previewLayout {
+	layout := previewLayout{stacked: width < 52, formatWidth: 8, weightWidth: 10}
+	if !layout.stacked {
+		// The cursor, checkbox, and three separators consume eight cells.
+		layout.nameWidth = max(8, width-8-layout.formatWidth-layout.weightWidth)
+	}
+	return layout
+}
+
+func (model Model) resultsHeading() string {
+	layout := newResultsLayout(model.contentWidth())
+	line := "  " + padRight("Family", layout.nameWidth) + " " +
+		padLeft("Files", layout.countWidth) + " " +
+		padRight("Format", layout.formatWidth) + " " +
+		padRight("Provider", layout.sourceWidth)
+	return model.secondary.Render(padRight(truncate(line, model.contentWidth()), model.contentWidth()))
+}
+
+func (model Model) previewHeading(layout previewLayout) string {
+	line := "      " + padRight("File", layout.nameWidth) + " " +
+		padRight("Format", layout.formatWidth) + " " +
+		padRight("Weight", layout.weightWidth)
+	return model.secondary.Render(padRight(truncate(line, model.contentWidth()), model.contentWidth()))
+}
+
+func (model Model) previewFileRows(layout previewLayout, prefix, check string, result provider.Result, active bool) []string {
+	format := strings.ToUpper(displayFormat(result))
+	weight := displayWeight(result.Weight)
+	if layout.stacked {
+		nameLine := padRight(truncate(prefix+check+" "+result.Filename, model.contentWidth()), model.contentWidth())
+		metadataLine := padRight(truncate("      "+padRight(format, layout.formatWidth)+" "+weight, model.contentWidth()), model.contentWidth())
+		if active {
+			return []string{model.accent.Render(nameLine), model.accent.Render(metadataLine)}
+		}
+		return []string{nameLine, model.secondary.Render(metadataLine)}
+	}
+	line := prefix + check + " " +
+		padRight(truncate(result.Filename, layout.nameWidth), layout.nameWidth) + " " +
+		padRight(truncate(format, layout.formatWidth), layout.formatWidth) + " " +
+		padRight(truncate(weight, layout.weightWidth), layout.weightWidth)
+	line = padRight(truncate(line, model.contentWidth()), model.contentWidth())
+	if active {
+		return []string{model.accent.Render(line)}
+	}
+	return []string{line}
+}
+
+func (model Model) compactPreviewFileRow(prefix, check string, result provider.Result, active bool) []string {
+	format := strings.ToUpper(displayFormat(result))
+	weight := displayWeight(result.Weight)
+	formatWidth := min(5, lipgloss.Width(format))
+	weightWidth := min(8, lipgloss.Width(weight))
+	fixedWidth := lipgloss.Width(prefix) + lipgloss.Width(check) + 3 + formatWidth + weightWidth
+	nameWidth := max(1, model.contentWidth()-fixedWidth)
+	line := prefix + check + " " +
+		padRight(truncate(result.Filename, nameWidth), nameWidth) + " " +
+		padRight(truncate(format, formatWidth), formatWidth) + " " +
+		padRight(truncate(weight, weightWidth), weightWidth)
+	line = padRight(truncate(line, model.contentWidth()), model.contentWidth())
+	if active {
+		line = model.accent.Render(line)
+	}
+	return []string{line}
+}
+
 func (model Model) resultWindow(height int) []string {
+	layout := newResultsLayout(model.contentWidth())
+	if layout.stacked && height < 2 {
+		start, _ := model.resultsWindow.clamp(len(model.groups), 1)
+		if len(model.groups) == 0 || height < 1 {
+			return nil
+		}
+		return []string{model.compactResultRow(model.groups[start], start == model.resultsWindow.cursor)}
+	}
 	rowsPerResult := 1
-	if model.contentWidth() < 72 {
+	if layout.stacked {
 		rowsPerResult = 2
 	}
 	capacity := max(1, height/rowsPerResult)
-	return renderWindow(&model.resultsWindow, len(model.groups), capacity, func(index int, selected bool) []string {
+	lines := renderWindow(&model.resultsWindow, len(model.groups), capacity, func(index int, selected bool) []string {
 		return model.groupRow(model.groups[index], selected)
 	})
+	return lines[:min(len(lines), max(0, height))]
 }
 
 func (model Model) resultPageSize() int {
-	height := model.bodyHeight()
+	height := model.bodyHeight() - len(model.resultsPrelude())
 	if model.status != "" {
 		height--
 	}
-	if len(model.providerStatus) > 0 {
-		height--
-	}
-	if model.filtering || model.filter != "" {
-		height--
-	}
-	if model.contentWidth() < 72 {
+	if newResultsLayout(model.contentWidth()).stacked {
 		height /= 2
 	}
 	return max(1, height)
 }
 
-func (model Model) resultRow(result provider.Result, selected bool) []string {
-	width := model.contentWidth()
-	prefix := "  "
-	if selected {
-		prefix = "> "
-	}
-	decorate := func(line string) string {
-		line = truncate(line, width)
-		if selected {
-			return model.accent.Render(line)
-		}
-		return line
-	}
-	format := displayFormat(result)
-	if width >= 72 {
-		formatWidth, weightWidth := 7, 11
-		sourceWidth := min(28, max(12, width/4))
-		nameWidth := max(8, width-2-formatWidth-weightWidth-sourceWidth-6)
-		line := prefix + padRight(truncate(result.Filename, nameWidth), nameWidth) + "  " +
-			padRight(model.formatBadge(format), formatWidth) + " " +
-			padRight(truncate(displayWeight(result.Weight), weightWidth), weightWidth) + " " +
-			truncate(model.providerTag(result.Source), sourceWidth)
-		return []string{decorate(line)}
-	}
-	name := prefix + truncate(result.Filename, max(1, width-2))
-	metadata := "  " + model.formatBadge(format) + "  " + displayWeight(result.Weight)
-	if width >= 42 && result.Source != "" {
-		metadata += "  " + model.providerTag(result.Source)
-	}
-	return []string{decorate(name), decorate(model.faint.Render(truncate(metadata, width)))}
-}
-
 func (model Model) groupRow(group rank.ResultGroup, selected bool) []string {
-	if group.FileCount == 1 {
-		return model.resultRow(group.Files[0], selected)
-	}
-	width := model.contentWidth()
-	prefix := "  "
-	if selected {
-		prefix = "> "
-	}
 	name := group.FamilyName
 	if name == "" {
 		name = group.Files[0].Filename
 	} else {
 		name = titleFamily(name)
 	}
-	formats := strings.ToUpper(strings.Join(group.Formats, "/"))
-	if width < 72 {
-		nameLine := prefix + truncate(name, max(1, width-2))
-		metadata := fmt.Sprintf("  %d files  %s  %s", group.FileCount, model.formatBadge(formats), model.providerTag(group.Source))
-		if selected {
-			return []string{model.accent.Render(truncate(nameLine, width)), model.accent.Render(truncate(metadata, width))}
-		}
-		return []string{truncate(nameLine, width), model.faint.Render(truncate(metadata, width))}
-	}
-	line := fmt.Sprintf("%s%s  %d files  %s  %s", prefix, name, group.FileCount, model.formatBadge(formats), model.providerTag(group.Source))
-	line = truncate(line, width)
+	return model.renderResultRow(name, group.FileCount, strings.ToUpper(strings.Join(group.Formats, "/")), group.Provider, selected)
+}
+
+func (model Model) renderResultRow(name string, count int, format, providerName string, selected bool) []string {
+	width := model.contentWidth()
+	layout := newResultsLayout(width)
+	cursor := " "
 	if selected {
-		line = model.accent.Render(line)
+		cursor = ">"
 	}
+	prefix := cursor + " "
+	plainProvider := displayProvider(providerName)
+	if layout.stacked {
+		nameLine := prefix + truncate(name, max(1, width-lipgloss.Width(prefix)))
+		metadata := "  " + padLeft(fmt.Sprintf("%d", count), layout.countWidth) + " " + padRight(format, layout.formatWidth)
+		if width >= 34 && plainProvider != "" {
+			metadata += " " + plainProvider
+		}
+		rows := []string{padRight(truncate(nameLine, width), width), padRight(truncate(metadata, width), width)}
+		if selected {
+			for index := range rows {
+				rows[index] = model.selection.Render(rows[index])
+			}
+		} else {
+			metadataLine := model.secondary.Render("  " + padLeft(fmt.Sprintf("%d", count), layout.countWidth) + " " + padRight(format, layout.formatWidth))
+			if width >= 34 && plainProvider != "" {
+				sourceWidth := max(1, width-lipgloss.Width(metadataLine)-1)
+				metadataLine += " " + model.renderProvider(providerName, sourceWidth)
+			}
+			rows[1] = padRight(truncate(metadataLine, width), width)
+		}
+		return rows
+	}
+	nameCell := padRight(truncate(name, layout.nameWidth), layout.nameWidth)
+	plainLine := prefix + nameCell + " " +
+		padLeft(fmt.Sprintf("%d", count), layout.countWidth) + " " +
+		padRight(truncate(format, layout.formatWidth), layout.formatWidth) + " " +
+		padRight(truncate(plainProvider, layout.sourceWidth), layout.sourceWidth)
+	plainLine = padRight(truncate(plainLine, width), width)
+	if selected {
+		return []string{model.selection.Render(plainLine)}
+	}
+	line := prefix + nameCell + " " +
+		padLeft(fmt.Sprintf("%d", count), layout.countWidth) + " " +
+		padRight(truncate(format, layout.formatWidth), layout.formatWidth) + " " +
+		model.renderProvider(providerName, layout.sourceWidth)
+	line = padRight(truncate(line, width), width)
 	return []string{line}
+}
+
+func (model Model) compactResultRow(group rank.ResultGroup, selected bool) string {
+	name := titleFamily(group.FamilyName)
+	if name == "" {
+		name = group.Files[0].Filename
+	}
+	prefix := "  "
+	if selected {
+		prefix = "> "
+	}
+	line := padRight(truncate(prefix+name, model.contentWidth()), model.contentWidth())
+	if selected {
+		return model.selection.Render(line)
+	}
+	return line
 }
 
 func (model Model) detailLines(result provider.Result) []string {
@@ -583,7 +780,7 @@ func (model Model) detailLines(result provider.Result) []string {
 	for index := range nameLines {
 		lines[index] = model.accent.Render(nameLines[index])
 	}
-	fields := [][2]string{{"Format", model.formatBadge(displayFormat(result))}, {"Weight", displayWeight(result.Weight)}, {"Source", model.providerTag(result.Source)}, {"License", model.licenseBadge(result.License)}, {"URL", result.URL}}
+	fields := [][2]string{{"Format", model.formatBadge(displayFormat(result))}, {"Weight", displayWeight(result.Weight)}, {"Provider", model.providerTag(result.Provider)}, {"License", model.licenseBadge(result.License)}, {"URL", result.URL}}
 	for _, field := range fields {
 		lines = append(lines, wrapCells(field[0]+": "+field[1], width)...)
 	}
@@ -591,18 +788,23 @@ func (model Model) detailLines(result provider.Result) []string {
 }
 
 func (model Model) resultsHelp() string {
-	switch {
-	case model.contentWidth() < 34:
-		return model.faint.Render("j/k move  enter view  q")
-	case model.contentWidth() < 48:
-		return model.faint.Render("j/k move  enter view  q quit")
-	case model.contentWidth() < 64:
-		return model.faint.Render("j/k browse  enter preview  / filter  tab health  q quit")
-	case model.contentWidth() < 90:
-		return model.faint.Render("j/k browse  enter preview  D get  / filter  tab health  q quit")
-	default:
-		return model.faint.Render("up/down: browse  pgup/dn: page  enter: preview  D: download  /: filter  f: format  o: sort  tab: health  q: quit")
+	width := model.contentWidth()
+	position := "0/0"
+	if len(model.groups) > 0 {
+		position = fmt.Sprintf("%d/%d", model.resultsWindow.cursor+1, len(model.groups))
 	}
+	left := "j/k enter D"
+	switch {
+	case width >= 90:
+		left = "j/k move  enter review  D top file  / filter  f format  o order  H health  q quit"
+	case width >= 64:
+		left = "j/k move  enter review  D top  / filter  f fmt  o order  H"
+	case width >= 48:
+		left = "j/k  enter  D  /  f format  o order  H"
+	case width >= 34:
+		left = "j/k enter D / f o H"
+	}
+	return model.secondary.Render(joinSides(left, position, width))
 }
 
 func (model Model) detailHelp() string {
@@ -630,6 +832,54 @@ func truncate(value string, width int) string {
 
 func padRight(value string, width int) string {
 	return value + strings.Repeat(" ", max(0, width-lipgloss.Width(value)))
+}
+
+func padLeft(value string, width int) string {
+	return strings.Repeat(" ", max(0, width-lipgloss.Width(value))) + value
+}
+
+func joinSides(left, right string, width int) string {
+	right = truncate(right, width)
+	available := width - lipgloss.Width(right)
+	if available <= 1 {
+		return padRight(right, width)
+	}
+	left = truncate(left, available-2)
+	gap := max(2, width-lipgloss.Width(left)-lipgloss.Width(right))
+	return padRight(truncate(left+strings.Repeat(" ", gap)+right, width), width)
+}
+
+func displayFormatFilter(format string) string {
+	if format == "" || strings.EqualFold(format, "all") {
+		return "All"
+	}
+	return strings.ToUpper(format)
+}
+
+func displaySort(sort string) string {
+	if sort == "score" {
+		return "Best match"
+	}
+	if sort == "" {
+		return "Best match"
+	}
+	return strings.ToUpper(sort[:1]) + sort[1:]
+}
+
+func displayProvider(providerName string) string {
+	if providerName == "" {
+		return "unknown"
+	}
+	return "[" + strings.ToLower(providerName) + "]"
+}
+
+func (model Model) renderProvider(providerName string, width int) string {
+	providerName = strings.ToLower(providerName)
+	label := displayProvider(providerName)
+	if style, ok := model.providerStyles[providerName]; ok {
+		label = style.Render(label)
+	}
+	return padRight(truncate(label, width), width)
 }
 
 func wrapCells(value string, width int) []string {
@@ -698,6 +948,10 @@ func eventStatus(event provider.Event) string {
 }
 
 func (model *Model) refresh() {
+	// Live provider events can reorder both groups and their files. Capture the
+	// reviewed identities before ranking again so a numeric cursor never points
+	// at a different download after the refresh.
+	preview := model.capturePreview()
 	model.visible = model.visible[:0]
 	filter := strings.ToLower(model.filter)
 	for _, result := range rank.Results(model.all, model.query, model.wantedWeight, model.ranking) {
@@ -708,7 +962,7 @@ func (model *Model) refresh() {
 		if model.format != "all" && result.Format != model.format {
 			continue
 		}
-		searchable := strings.ToLower(result.Filename + " " + result.Weight + " " + result.Source)
+		searchable := strings.ToLower(result.Filename + " " + result.Weight + " " + result.Provider + " " + result.Source)
 		if filter != "" && !strings.Contains(searchable, filter) {
 			continue
 		}
@@ -717,13 +971,20 @@ func (model *Model) refresh() {
 			break
 		}
 	}
+	model.groups = rank.Groups(model.visible)
 	switch model.sortMode {
 	case 1:
-		sort.SliceStable(model.visible, func(i, j int) bool { return model.visible[i].Format < model.visible[j].Format })
+		sort.SliceStable(model.groups, func(i, j int) bool {
+			return model.groups[i].FileCount > model.groups[j].FileCount
+		})
 	case 2:
-		sort.SliceStable(model.visible, func(i, j int) bool { return model.visible[i].SizeBytes < model.visible[j].SizeBytes })
+		sort.SliceStable(model.groups, func(i, j int) bool {
+			left := rank.PreferredFormatOrder(model.groups[i].BestFormat)
+			right := rank.PreferredFormatOrder(model.groups[j].BestFormat)
+			return left < right
+		})
 	}
-	model.groups = rank.Groups(model.visible)
+	model.restorePreview(preview)
 	model.resultsWindow.clamp(len(model.groups), model.resultPageSize())
 	if len(model.visible) == 0 {
 		if model.screen == screenPreview {
@@ -731,6 +992,58 @@ func (model *Model) refresh() {
 		}
 		model.detailOffset = 0
 	}
+}
+
+func (model Model) capturePreview() previewSnapshot {
+	previewOpen := model.screen == screenPreview || model.screen == screenConfirm && model.returnScreen == screenPreview
+	if !previewOpen || len(model.groups) == 0 {
+		return previewSnapshot{}
+	}
+	group := model.currentGroup()
+	snapshot := previewSnapshot{groupID: group.GroupID, selectedFiles: make(map[string]bool)}
+	for index, result := range group.Files {
+		if model.selectedFiles[index] {
+			snapshot.selectedFiles[provider.ResultIdentity(result)] = true
+		}
+	}
+	if len(group.Files) > 0 {
+		activeIndex := min(len(group.Files)-1, max(0, model.previewWindow.cursor))
+		snapshot.activeFile = provider.ResultIdentity(group.Files[activeIndex])
+	}
+	return snapshot
+}
+
+func (model *Model) restorePreview(snapshot previewSnapshot) {
+	if snapshot.groupID == "" {
+		return
+	}
+	groupIndex := -1
+	for index := range model.groups {
+		if model.groups[index].GroupID == snapshot.groupID {
+			groupIndex = index
+			break
+		}
+	}
+	if groupIndex < 0 {
+		model.screen = screenResults
+		model.detailOffset = 0
+		model.previewWindow.home()
+		clear(model.selectedFiles)
+		return
+	}
+
+	model.resultsWindow.cursor = groupIndex
+	model.selectedFiles = make(map[int]bool, len(snapshot.selectedFiles))
+	for index, result := range model.groups[groupIndex].Files {
+		identity := provider.ResultIdentity(result)
+		if snapshot.selectedFiles[identity] {
+			model.selectedFiles[index] = true
+		}
+		if identity == snapshot.activeFile {
+			model.previewWindow.cursor = index
+		}
+	}
+	model.previewWindow.clamp(len(model.groups[groupIndex].Files), model.bodyHeight()-2)
 }
 
 func (model Model) currentGroup() rank.ResultGroup {
@@ -748,6 +1061,35 @@ func (model *Model) selectAllCurrentGroup() {
 	for index := range model.currentGroup().Files {
 		model.selectedFiles[index] = true
 	}
+}
+
+func (model *Model) selectRecommendedCurrentGroup() {
+	model.selectedFiles = make(map[int]bool)
+	selectedStyles := make(map[string]bool)
+	for index, result := range model.currentGroup().Files {
+		style := familyStyleCategory(result)
+		if selectedStyles[style] {
+			continue
+		}
+		selectedStyles[style] = true
+		model.selectedFiles[index] = true
+	}
+}
+
+func familyStyleCategory(result provider.Result) string {
+	tags := rank.ParseFilename(result.Filename)
+	posture := "roman"
+	if tags.Italic {
+		posture = "italic"
+	}
+	if result.Variable || tags.Variable {
+		return "variable\x00" + posture
+	}
+	weight := rank.WeightOf(result)
+	if weight == "" {
+		weight = "regular"
+	}
+	return weight + "\x00" + posture
 }
 
 func (model Model) selectedCount() int {
@@ -794,9 +1136,18 @@ func (model Model) previewContext() string {
 
 func (model Model) familyPreviewBody() string {
 	group := model.currentGroup()
-	available := max(1, model.bodyHeight()-2)
-	lines := []string{truncate(fmt.Sprintf("  %s  %s", titleFamily(group.FamilyName), model.providerTag(group.Source)), model.contentWidth()), ""}
-	lines = append(lines, renderWindow(&model.previewWindow, len(group.Files), available, func(index int, active bool) []string {
+	layout := newPreviewLayout(model.contentWidth())
+	lines := []string{truncate(fmt.Sprintf("  %s  %s", titleFamily(group.FamilyName), model.providerTag(group.Provider)), model.contentWidth()), ""}
+	if !layout.stacked {
+		lines = append(lines, model.previewHeading(layout))
+	}
+	available := max(1, model.bodyHeight()-len(lines))
+	capacity := available
+	compact := layout.stacked && available < 2
+	if layout.stacked {
+		capacity = max(1, available/2)
+	}
+	lines = append(lines, renderWindow(&model.previewWindow, len(group.Files), capacity, func(index int, active bool) []string {
 		result := group.Files[index]
 		check := "[ ]"
 		if model.selectedFiles[index] {
@@ -806,12 +1157,10 @@ func (model Model) familyPreviewBody() string {
 		if active {
 			prefix = "> "
 		}
-		line := fmt.Sprintf("%s%s %s  %s  %s", prefix, check, result.Filename, model.formatBadge(displayFormat(result)), displayWeight(result.Weight))
-		line = truncate(line, model.contentWidth())
-		if active {
-			line = model.accent.Render(line)
+		if compact {
+			return model.compactPreviewFileRow(prefix, check, result, active)
 		}
-		return []string{line}
+		return model.previewFileRows(layout, prefix, check, result, active)
 	})...)
 	return strings.Join(lines, "\n")
 }
@@ -849,17 +1198,12 @@ func titleFamily(value string) string {
 }
 
 func (model Model) providerTag(source string) string {
-	name := strings.ToLower(source)
-	for _, providerName := range []string{"github", "getfonts", "registry", "websearch", "plugins"} {
-		if strings.Contains(name, providerName) {
-			label := "[" + providerName + "]"
-			if style, ok := model.providerStyles[providerName]; ok {
-				return style.Render(label)
-			}
-			return label
-		}
+	providerName := strings.ToLower(source)
+	label := displayProvider(providerName)
+	if style, ok := model.providerStyles[providerName]; ok {
+		return style.Render(label)
 	}
-	return source
+	return label
 }
 
 func (model Model) formatBadge(format string) string {
@@ -926,7 +1270,7 @@ func (model Model) healthHelp() string {
 }
 
 func (model Model) sortName() string {
-	return []string{"score", "format", "size"}[model.sortMode]
+	return []string{"score", "most files", "preferred format"}[model.sortMode]
 }
 
 func displayWeight(weight string) string {

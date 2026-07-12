@@ -50,6 +50,20 @@ highest-ranked result, then selects matching family files from that same
 source. This keeps the set coherent and rewards sources that contain several
 weights.
 
+The TUI shows these source-bounded bundles as family candidates. A one-file
+candidate remains a family candidate in the results list instead of changing
+into an apparent child file. Open a candidate to inspect its individual
+filenames. Raw source provenance remains available in machine output, while the
+results grid shows only the provider name.
+
+Opening a multi-file candidate selects one highest-ranked file for each
+normalized style category. Categories combine weight and posture, such as
+Regular, Regular Italic, Bold, and Bold Italic; variable fonts form a separate
+category for each posture. This keeps duplicate paths or alternate formats
+from entering the default family download without treating Roman and Italic
+variable fonts as substitutes. The preview still allows selecting every file
+or toggling individual alternatives.
+
 If a member fails byte validation, the whole staged group is discarded before
 Moji tries the next family source. A completed family never combines weights
 from unrelated repositories or hosts.
@@ -58,5 +72,6 @@ from unrelated repositories or hosts.
 
 A high score means a result matches the query and quality heuristics. It does
 not prove authorship, integrity beyond the validated file format, or a license
-grant. Source and license fields remain visible so the user can make that
-decision.
+grant. Machine output preserves source and license fields for callers that need
+to evaluate that provenance; the TUI keeps the results grid focused on provider
+identity and exposes the direct URL when a candidate is opened.

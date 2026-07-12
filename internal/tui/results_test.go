@@ -36,7 +36,7 @@ func TestModelNavigationFilteringPreviewAndFormatCycle(t *testing.T) {
 		{Filename: "Example-Regular.otf", Format: "otf", Source: "fixture", Score: 2},
 		{Filename: "Example-Bold.ttf", Format: "ttf", Source: "fixture", Score: 1},
 	}, nil, false)
-	if !strings.Contains(model.View(), "Found 2 files in 1 groups") {
+	if !strings.Contains(model.View(), "1 options  2 files") {
 		t.Fatal(model.View())
 	}
 	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'f'}})
@@ -112,7 +112,7 @@ func TestZeroSizedPTYUsesFallbackDimensions(t *testing.T) {
 	t.Parallel()
 	model := sizedModel(t, NewModel([]provider.Result{{Filename: "Fallback.otf", Format: "otf"}}, nil, false), 0, 0)
 	view := model.View()
-	if !strings.Contains(view, "Fallback.otf") || strings.Count(view, "\n") < 5 {
+	if !strings.Contains(view, "Fallback") || strings.Count(view, "\n") < 5 {
 		t.Fatalf("zero-sized PTY collapsed the interface:\n%s", view)
 	}
 }
@@ -130,7 +130,7 @@ func TestResultsKeepChromeVisibleAndScrollSelectionIntoView(t *testing.T) {
 	}
 	view := model.View()
 	assertViewFits(t, view, 80, 12)
-	for _, wanted := range []string{"文字  moji", "Found 20 files in 20 groups", "Font-15.otf", "j/k"} {
+	for _, wanted := range []string{"文字  moji", "20 options  20 files", "Font 15", "j/k"} {
 		if !strings.Contains(view, wanted) {
 			t.Fatalf("%q is not visible after scrolling:\n%s", wanted, view)
 		}
@@ -153,7 +153,7 @@ func TestResultsSupportPageAndBoundaryNavigation(t *testing.T) {
 
 	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnd})
 	model = updated.(Model)
-	if model.resultsWindow.cursor != len(results)-1 || !strings.Contains(model.View(), "Font-29.otf") {
+	if model.resultsWindow.cursor != len(results)-1 || !strings.Contains(model.View(), "Font 29") {
 		t.Fatalf("end did not select the last result: cursor=%d\n%s", model.resultsWindow.cursor, model.View())
 	}
 
@@ -161,6 +161,58 @@ func TestResultsSupportPageAndBoundaryNavigation(t *testing.T) {
 	model = updated.(Model)
 	if model.resultsWindow.cursor != 0 {
 		t.Fatalf("home selected result %d", model.resultsWindow.cursor)
+	}
+}
+
+func TestAlternateSortModesReorderFamilyCandidates(t *testing.T) {
+	model := NewModel([]provider.Result{
+		{Filename: "Alpha-Regular.otf", Format: "otf", Weight: "regular", Source: "getfonts.cc/owner/alpha", Provider: "getfonts"},
+		{Filename: "Beta-Regular.woff2", Format: "woff2", Weight: "regular", Source: "github.com/owner/beta", Provider: "github"},
+		{Filename: "Beta-Bold.woff2", Format: "woff2", Weight: "bold", Source: "github.com/owner/beta", Provider: "github"},
+		{Filename: "Beta-Italic.woff2", Format: "woff2", Weight: "regular", Source: "github.com/owner/beta", Provider: "github"},
+	}, nil, false)
+
+	model.sortMode = 1
+	model.refresh()
+	if model.groups[0].FileCount != 3 {
+		t.Fatalf("most-files order starts with %d files", model.groups[0].FileCount)
+	}
+
+	model.sortMode = 2
+	model.refresh()
+	if model.groups[0].BestFormat != "otf" {
+		t.Fatalf("preferred-format order starts with %q", model.groups[0].BestFormat)
+	}
+}
+
+func TestPreferredFormatOrderCoversEveryAcceptedFormat(t *testing.T) {
+	formats := []string{"otf", "ttf", "dfont", "pfb", "woff2", "woff", "pfm"}
+	results := make([]provider.Result, 0, len(formats))
+	for index := len(formats) - 1; index >= 0; index-- {
+		format := formats[index]
+		results = append(results, provider.Result{
+			Filename: fmt.Sprintf("Family%d.%s", index, format), Format: format,
+			Source: fmt.Sprintf("fixture/%d", index), Provider: "fixture",
+		})
+	}
+	model := NewModel(results, nil, false)
+	model.sortMode = 2
+	model.refresh()
+	for index, format := range formats {
+		if model.groups[index].BestFormat != format {
+			t.Fatalf("preferred format %d = %q, want %q", index, model.groups[index].BestFormat, format)
+		}
+	}
+}
+
+func TestFilterMatchesDisplayedProvider(t *testing.T) {
+	model := NewModel([]provider.Result{{
+		Filename: "Example-Regular.otf", Format: "otf", Source: "fontsource.org", Provider: "registry",
+	}}, nil, false)
+	model.filter = "registry"
+	model.refresh()
+	if len(model.visible) != 1 || !strings.Contains(model.View(), "[registry]") {
+		t.Fatalf("provider filter hid the visibly matching candidate:\n%s", model.View())
 	}
 }
 
@@ -301,6 +353,27 @@ func TestRefreshClosesDetailsWhenSelectedResultDisappears(t *testing.T) {
 	}
 }
 
+func TestRefreshClosesPreviewWhenItsGroupDisappearsButOthersRemain(t *testing.T) {
+	model := NewModel([]provider.Result{
+		{Filename: "Alpha-Regular.otf", Format: "otf", Source: "fixture/alpha"},
+		{Filename: "Alpha-Bold.otf", Format: "otf", Source: "fixture/alpha"},
+		{Filename: "Beta-Regular.ttf", Format: "ttf", Source: "fixture/beta"},
+		{Filename: "Beta-Bold.ttf", Format: "ttf", Source: "fixture/beta"},
+	}, nil, false)
+	model.resultsWindow.cursor = 1
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(Model)
+	if model.currentGroup().FamilyName != "beta" {
+		t.Fatalf("opened %q, want beta", model.currentGroup().FamilyName)
+	}
+
+	model.format = "otf"
+	model.refresh()
+	if model.screen != screenResults || len(model.groups) != 1 || model.groups[0].FamilyName != "alpha" {
+		t.Fatalf("disappeared preview remained open: screen=%v groups=%#v", model.screen, model.groups)
+	}
+}
+
 func TestHomeModelStartsLiveSearchFromTypedQuery(t *testing.T) {
 	t.Parallel()
 
@@ -330,7 +403,7 @@ func TestHomeModelStartsLiveSearchFromTypedQuery(t *testing.T) {
 		updated, command = model.Update(command())
 		model = updated.(Model)
 	}
-	if !strings.Contains(model.View(), "Quicksand-Regular.otf") {
+	if !strings.Contains(model.View(), "Quicksand") {
 		t.Fatalf("search result missing:\n%s", model.View())
 	}
 }
@@ -403,15 +476,372 @@ func TestGroupedResultsOpenSelectableFamilyPreview(t *testing.T) {
 	}
 }
 
-func TestGroupedResultUsesTwoRowsAtNarrowWidths(t *testing.T) {
+func TestFamilyPreviewSelectsOneRankedFilePerStyle(t *testing.T) {
+	results := []provider.Result{
+		{Filename: "Example-Regular.ttf", Format: "ttf", Weight: "regular", Source: "fixture"},
+		{Filename: "Example-Regular.otf", Format: "otf", Weight: "regular", Source: "fixture"},
+		{Filename: "Example-Italic.ttf", Format: "ttf", Weight: "regular", Source: "fixture"},
+		{Filename: "Example-Italic.otf", Format: "otf", Weight: "regular", Source: "fixture"},
+		{Filename: "Example-Bold.ttf", Format: "ttf", Weight: "bold", Source: "fixture"},
+		{Filename: "Example-Bold.otf", Format: "otf", Weight: "bold", Source: "fixture"},
+		{Filename: "Example-BoldItalic.ttf", Format: "ttf", Weight: "bold", Source: "fixture"},
+		{Filename: "Example-BoldItalic.otf", Format: "otf", Weight: "bold", Source: "fixture"},
+		{Filename: "Example[wdth,wght].ttf", Format: "ttf", Variable: true, Source: "fixture"},
+		{Filename: "Example[wdth,wght].otf", Format: "otf", Variable: true, Source: "fixture"},
+		{Filename: "Example-Italic[wdth,wght].ttf", Format: "ttf", Variable: true, Source: "fixture"},
+		{Filename: "Example-Italic[wdth,wght].otf", Format: "otf", Variable: true, Source: "fixture"},
+	}
+	model := NewModel(results, nil, false)
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(Model)
+	if model.selectedCount() != 6 || !strings.Contains(model.View(), "6/12 selected") {
+		t.Fatalf("default family selection chose %d files, want one per style:\n%s", model.selectedCount(), model.View())
+	}
+	for index, result := range model.currentGroup().Files {
+		if model.selectedFiles[index] && result.Format != "otf" {
+			t.Fatalf("selected lower-ranked duplicate %q", result.Filename)
+		}
+	}
+
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+	model = updated.(Model)
+	if model.selectedCount() != len(results) {
+		t.Fatalf("select all chose %d/%d files", model.selectedCount(), len(results))
+	}
+}
+
+func TestLiveResultsKeepTheOpenedFamilyAndSelectionsStable(t *testing.T) {
+	var downloaded []string
+	model := NewModel([]provider.Result{
+		{Filename: "Beta-Regular.ttf", Format: "ttf", Weight: "regular", Source: "fixture/beta", URL: "https://example.test/beta-regular.ttf"},
+		{Filename: "Beta-Bold.ttf", Format: "ttf", Weight: "bold", Source: "fixture/beta", URL: "https://example.test/beta-bold.ttf"},
+	}, func(result provider.Result) (string, error) {
+		downloaded = append(downloaded, result.Filename)
+		return "/tmp/" + result.Filename, nil
+	}, false)
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(Model)
+
+	for _, result := range []provider.Result{
+		{Filename: "Alpha-Regular.otf", Format: "otf", Weight: "regular", Source: "fixture/alpha", URL: "https://example.test/alpha-regular.otf"},
+		{Filename: "Alpha-Bold.otf", Format: "otf", Weight: "bold", Source: "fixture/alpha", URL: "https://example.test/alpha-bold.otf"},
+	} {
+		updated, _ = model.Update(eventMessage{event: provider.Event{Provider: "fixture", Type: provider.EventResult, Result: result}, open: true})
+		model = updated.(Model)
+	}
+	if model.currentGroup().FamilyName != "beta" || model.selectedCount() != 2 {
+		t.Fatalf("live ranking retargeted preview to %q with %d selected", model.currentGroup().FamilyName, model.selectedCount())
+	}
+	updated, command := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'D'}})
+	model = updated.(Model)
+	if command == nil {
+		t.Fatal("download command is nil")
+	}
+	model.Update(command())
+	if strings.Join(downloaded, ",") != "Beta-Bold.ttf,Beta-Regular.ttf" {
+		t.Fatalf("downloaded retargeted files: %v", downloaded)
+	}
+}
+
+func TestLiveReorderingPreservesManualFileToggles(t *testing.T) {
+	model := NewModel([]provider.Result{
+		{Filename: "Example-Regular.ttf", Format: "ttf", Weight: "regular", Source: "fixture", URL: "https://example.test/regular.ttf"},
+		{Filename: "Example-Bold.ttf", Format: "ttf", Weight: "bold", Source: "fixture", URL: "https://example.test/bold.ttf"},
+	}, nil, false)
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(Model)
+	deselected := provider.ResultIdentity(model.currentGroup().Files[model.previewWindow.cursor])
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeySpace})
+	model = updated.(Model)
+	selected := make(map[string]bool)
+	for index, result := range model.currentGroup().Files {
+		if model.selectedFiles[index] {
+			selected[provider.ResultIdentity(result)] = true
+		}
+	}
+
+	updated, _ = model.Update(eventMessage{event: provider.Event{Provider: "fixture", Type: provider.EventResult, Result: provider.Result{
+		Filename: "Example-Regular.otf", Format: "otf", Weight: "regular", Source: "fixture", URL: "https://example.test/regular.otf",
+	}}, open: true})
+	model = updated.(Model)
+	for index, result := range model.currentGroup().Files {
+		identity := provider.ResultIdentity(result)
+		if identity == deselected && model.selectedFiles[index] {
+			t.Fatalf("manually deselected %q became selected", result.Filename)
+		}
+		if selected[identity] && !model.selectedFiles[index] {
+			t.Fatalf("selected %q became deselected", result.Filename)
+		}
+	}
+}
+
+func TestLiveResultsCannotRetargetAConfirmedFamilyDownload(t *testing.T) {
+	var downloaded []string
+	model := NewModel([]provider.Result{
+		{Filename: "Beta-Regular.ttf", Format: "ttf", Weight: "regular", Source: "fixture/beta", URL: "https://example.test/beta-regular.ttf"},
+		{Filename: "Beta-Medium.ttf", Format: "ttf", Weight: "medium", Source: "fixture/beta", URL: "https://example.test/beta-medium.ttf"},
+		{Filename: "Beta-Bold.ttf", Format: "ttf", Weight: "bold", Source: "fixture/beta", URL: "https://example.test/beta-bold.ttf"},
+		{Filename: "Beta-Black.ttf", Format: "ttf", Weight: "black", Source: "fixture/beta", URL: "https://example.test/beta-black.ttf"},
+	}, func(result provider.Result) (string, error) {
+		downloaded = append(downloaded, result.Filename)
+		return "/tmp/" + result.Filename, nil
+	}, false)
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(Model)
+	updated, command := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'D'}})
+	model = updated.(Model)
+	if model.screen != screenConfirm || command != nil {
+		t.Fatalf("large family did not open confirmation: screen=%v", model.screen)
+	}
+
+	for _, result := range []provider.Result{
+		{Filename: "Alpha-Regular.otf", Format: "otf", Weight: "regular", Source: "fixture/alpha", URL: "https://example.test/alpha-regular.otf"},
+		{Filename: "Alpha-Bold.otf", Format: "otf", Weight: "bold", Source: "fixture/alpha", URL: "https://example.test/alpha-bold.otf"},
+	} {
+		updated, _ = model.Update(eventMessage{event: provider.Event{Provider: "fixture", Type: provider.EventResult, Result: result}, open: true})
+		model = updated.(Model)
+	}
+	updated, command = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(Model)
+	if command == nil {
+		t.Fatal("confirmed download command is nil")
+	}
+	model.Update(command())
+	if len(downloaded) != 4 {
+		t.Fatalf("downloaded %d files, want 4 Beta styles: %v", len(downloaded), downloaded)
+	}
+	for _, filename := range downloaded {
+		if !strings.HasPrefix(filename, "Beta-") {
+			t.Fatalf("confirmation downloaded unreviewed file %q", filename)
+		}
+	}
+}
+
+func TestGroupedResultUsesTheResponsiveRowShape(t *testing.T) {
 	model := NewModel([]provider.Result{
 		{Filename: "Example-Regular.otf", Format: "otf", Source: "github"},
 		{Filename: "Example-Bold.otf", Format: "otf", Source: "github"},
 	}, nil, false)
-	model = sizedModel(t, model, 60, 20)
-	rows := model.groupRow(model.groups[0], true)
-	if len(rows) != 2 || !strings.Contains(rows[0], "Example") || !strings.Contains(rows[1], "2 files") {
-		t.Fatalf("narrow group rows = %#v", rows)
+	for _, test := range []struct {
+		width, wantRows int
+	}{{24, 2}, {40, 2}, {60, 1}, {80, 1}, {120, 1}} {
+		model := sizedModel(t, model, test.width, 20)
+		rows := model.groupRow(model.groups[0], true)
+		if len(rows) != test.wantRows || !strings.Contains(rows[0], "Example") {
+			t.Fatalf("%d-column group rows = %#v, want %d", test.width, rows, test.wantRows)
+		}
+	}
+}
+
+func TestStackedCandidateMetadataUsesFixedColumns(t *testing.T) {
+	model := NewModel([]provider.Result{
+		{Filename: "Alpha-Regular.otf", Format: "otf", Source: "github.com/owner/alpha", Provider: "github"},
+		{Filename: "Beta-Regular.woff2", Format: "woff2", Source: "github.com/owner/beta", Provider: "github"},
+	}, nil, false)
+	model = sizedModel(t, model, 40, 16)
+	view := model.View()
+	var providerColumns []int
+	for _, line := range strings.Split(view, "\n") {
+		if column := strings.Index(line, "[github]"); column >= 0 && !strings.Contains(line, "Best") {
+			providerColumns = append(providerColumns, column)
+		}
+	}
+	if len(providerColumns) != 2 || providerColumns[0] != providerColumns[1] {
+		t.Fatalf("stacked provider columns = %v, want two aligned columns:\n%s", providerColumns, view)
+	}
+}
+
+func TestResultGridShowsOnlyAlignedFamilyCandidates(t *testing.T) {
+	model := NewModel([]provider.Result{
+		{Filename: "GaramondPremierPro-Regular.ttf", Format: "ttf", Source: "github.com/owner/family", Provider: "github", Score: 12.3},
+		{Filename: "GaramondPremierPro-Bold.ttf", Format: "ttf", Source: "github.com/owner/family", Provider: "github", Score: 12.3},
+		{Filename: "GaramondPremierProCaption.otf", Format: "otf", Source: "getfonts.cc/archive/fonts", Provider: "getfonts", Score: 9.2},
+	}, nil, false)
+	model.query = "Garamond Premier Pro"
+	model = sizedModel(t, model, 120, 20)
+	view := model.View()
+	assertViewFits(t, view, 120, 20)
+
+	for _, wanted := range []string{"Query", "Garamond Premier Pro", "Recommended", "Family", "Files", "Format", "Provider", "[github]", "[getfonts]"} {
+		if !strings.Contains(view, wanted) {
+			t.Fatalf("results grid is missing %q:\n%s", wanted, view)
+		}
+	}
+	for _, unwanted := range []string{"Family / file", "> +", "  -", "GaramondPremierProCaption.otf", "owner/family", "archive/fonts", "Score"} {
+		if strings.Contains(view, unwanted) {
+			t.Fatalf("results grid still exposes %q:\n%s", unwanted, view)
+		}
+	}
+
+	lines := strings.Split(view, "\n")
+	var heading string
+	var candidates []string
+	for _, line := range lines {
+		switch {
+		case strings.Contains(line, "Family") && strings.Contains(line, "Provider"):
+			heading = line
+		case strings.Contains(line, "[github]"), strings.Contains(line, "[getfonts]"):
+			if !strings.Contains(line, "Recommended") {
+				candidates = append(candidates, line)
+			}
+		}
+	}
+	if len(candidates) != 2 {
+		t.Fatalf("candidate rows = %d, want 2:\n%s", len(candidates), view)
+	}
+	for _, column := range []string{"Format", "Provider"} {
+		position := strings.Index(heading, column)
+		for _, candidate := range candidates {
+			if position < 0 || position >= len(candidate) || candidate[position] == ' ' {
+				t.Fatalf("column %q was not rendered consistently:\n%s", column, view)
+			}
+		}
+	}
+}
+
+func TestFamilyPreviewUsesAlignedFileColumns(t *testing.T) {
+	model := NewModel([]provider.Result{
+		{Filename: "Example-Regular.otf", Format: "otf", Weight: "regular", Source: "github.com/owner/fonts", Provider: "github"},
+		{Filename: "Example-ExtraBoldItalic.woff2", Format: "woff2", Weight: "bold", Source: "github.com/owner/fonts", Provider: "github"},
+	}, nil, false)
+	model.screen = screenPreview
+	model.selectAllCurrentGroup()
+	model = sizedModel(t, model, 80, 18)
+	view := model.View()
+	assertViewFits(t, view, 80, 18)
+
+	lines := strings.Split(view, "\n")
+	var heading string
+	var files []string
+	for _, line := range lines {
+		switch {
+		case strings.Contains(line, "File") && strings.Contains(line, "Weight"):
+			heading = line
+		case strings.Contains(line, "Example-"):
+			files = append(files, line)
+		}
+	}
+	if len(files) != 2 {
+		t.Fatalf("preview rows = %d, want 2:\n%s", len(files), view)
+	}
+	for _, column := range []string{"Format", "Weight"} {
+		position := strings.Index(heading, column)
+		for _, file := range files {
+			if position < 0 || position >= len(file) || file[position] == ' ' {
+				t.Fatalf("preview column %q is misaligned:\n%s", column, view)
+			}
+		}
+	}
+}
+
+func TestVeryShortFamilyPreviewKeepsFileMetadata(t *testing.T) {
+	model := NewModel([]provider.Result{
+		{Filename: "GaramondPremierPro-Regular.otf", Format: "otf", Weight: "regular", Source: "fixture", Provider: "fixture"},
+		{Filename: "GaramondPremierPro-Roman.otf", Format: "otf", Weight: "regular", Source: "fixture", Provider: "fixture"},
+	}, nil, false)
+	model.screen = screenPreview
+	model.selectAllCurrentGroup()
+	model = sizedModel(t, model, 24, 7)
+	view := model.View()
+	assertViewFits(t, view, 24, 7)
+	for _, wanted := range []string{"Gar...", "OTF", "regular"} {
+		if !strings.Contains(view, wanted) {
+			t.Fatalf("short preview lost %q:\n%s", wanted, view)
+		}
+	}
+}
+
+func TestResultsHierarchyHidesSettledProviderNoise(t *testing.T) {
+	model := NewModel([]provider.Result{{Filename: "GaramondPremierPro.otf", Format: "otf", Source: "github.com/owner/fonts"}}, nil, false)
+	model.query = "Garamond Premier Pro"
+	model.providerStatus["github"] = "done (214 results)"
+	model.providerStatus["registry"] = "done (0 results)"
+	model = sizedModel(t, model, 80, 16)
+
+	view := model.View()
+	for _, unwanted := range []string{"done (214 results)", "done (0 results)", "format:all", "sort:score"} {
+		if strings.Contains(view, unwanted) {
+			t.Fatalf("settled results contain %q:\n%s", unwanted, view)
+		}
+	}
+	for _, wanted := range []string{"Query", "Garamond Premier Pro", "Format All", "Order Best match", "Recommended", "1/1"} {
+		if !strings.Contains(view, wanted) {
+			t.Fatalf("results hierarchy is missing %q:\n%s", wanted, view)
+		}
+	}
+
+	model.screen = screenHealth
+	if health := model.View(); !strings.Contains(health, "done (214 results)") || !strings.Contains(health, "done (0 results)") {
+		t.Fatalf("provider details disappeared from Health:\n%s", health)
+	}
+}
+
+func TestResultsLoadingAndProviderAttentionStayConcise(t *testing.T) {
+	model := NewModel([]provider.Result{{Filename: "Example.otf", Format: "otf"}}, nil, false)
+	model.loading = true
+	model.providerStatus["github"] = "searching"
+	model.providerStatus["getfonts"] = "done (2 results)"
+	model.providerStates["github"] = provider.StateSearching
+	model.providerStates["getfonts"] = provider.StateDone
+	model = sizedModel(t, model, 80, 16)
+	if view := model.View(); !strings.Contains(view, "Searching providers") || strings.Contains(view, "getfonts: done") {
+		t.Fatalf("loading progress is not concise:\n%s", view)
+	}
+	if view := model.View(); strings.Contains(view, "Recommended") || !strings.Contains(view, "Best so far") {
+		t.Fatalf("loading results were presented as a settled recommendation:\n%s", view)
+	}
+	model.providerStates["github"] = provider.StateFailed
+	model.providerStates["getfonts"] = provider.StateSearching
+	if view := model.View(); !strings.Contains(view, "1/2 finished") {
+		t.Fatalf("terminal provider failures were not counted as finished:\n%s", view)
+	}
+	compact := sizedModel(t, model, 24, 8)
+	if view := compact.View(); !strings.Contains(view, "Example") || !strings.Contains(view, "OTF") {
+		t.Fatalf("compact loading chrome displaced the two-line result:\n%s", view)
+	}
+
+	model.loading = false
+	model.providerStatus["github"] = "rate limited"
+	model.providerStates["github"] = provider.StateThrottled
+	if view := model.View(); !strings.Contains(view, "provider needs attention") || strings.Contains(view, "github: rate limited") {
+		t.Fatalf("provider attention is not summarized:\n%s", view)
+	}
+}
+
+func TestProviderDisplayNeverIncludesOrigin(t *testing.T) {
+	model := NewModel([]provider.Result{
+		{Filename: "Example-Regular.otf", Format: "otf", Source: "github.com/owner/private-fonts", Provider: "github"},
+		{Filename: "Example-Bold.otf", Format: "otf", Source: "github.com/owner/private-fonts", Provider: "github"},
+	}, nil, false)
+	model = sizedModel(t, model, 80, 16)
+	view := model.View()
+	if !strings.Contains(view, "[github]") || strings.Contains(view, "owner/private-fonts") || strings.Contains(view, "github.com") {
+		t.Fatalf("provider display leaked source provenance:\n%s", view)
+	}
+}
+
+func TestResultRowsAndFooterFillTheCenteredColumn(t *testing.T) {
+	model := NewModel([]provider.Result{
+		{Filename: "Example-Regular.otf", Format: "otf", Source: "github.com/owner/fonts"},
+		{Filename: "Example-Bold.otf", Format: "otf", Source: "github.com/owner/fonts"},
+	}, nil, false)
+	for _, size := range []struct{ width, height, content int }{
+		{24, 8, 24}, {40, 12, 36}, {60, 16, 56}, {80, 20, 72}, {120, 24, 112}, {154, 30, 118},
+	} {
+		model := sizedModel(t, model, size.width, size.height)
+		if model.contentWidth() != size.content {
+			t.Fatalf("%d columns produced content width %d, want %d", size.width, model.contentWidth(), size.content)
+		}
+		rows := model.groupRow(model.groups[0], true)
+		for _, row := range rows {
+			if got := lipgloss.Width(row); got != model.contentWidth() {
+				t.Fatalf("selected row is %d cells, want %d at terminal width %d: %q", got, model.contentWidth(), size.width, row)
+			}
+		}
+		footer := strings.Split(model.resultsHelp(), "\n")[0]
+		if got := lipgloss.Width(footer); got != model.contentWidth() || !strings.Contains(footer, "1/1") {
+			t.Fatalf("footer at %d columns = %q (%d cells)", size.width, footer, got)
+		}
 	}
 }
 
@@ -419,7 +849,7 @@ func TestVeryNarrowChromePrioritizesContext(t *testing.T) {
 	model := sizedModel(t, NewModel([]provider.Result{{Filename: "Example.otf", Format: "otf"}}, nil, false), 24, 8)
 	view := model.View()
 	assertViewFits(t, view, 24, 8)
-	if !strings.Contains(view, "moji  1 groups") || strings.Contains(view, "文字") {
+	if !strings.Contains(view, "moji  results") || strings.Contains(view, "文字") {
 		t.Fatalf("narrow header did not prioritize context:\n%s", view)
 	}
 }
@@ -466,11 +896,35 @@ func TestResultsReserveAVisibleRowForStatus(t *testing.T) {
 	model.status = "Downloaded: /tmp/Font-15.otf"
 
 	view := model.View()
-	if !strings.Contains(view, "> Font-15.otf") {
+	if !strings.Contains(view, "> Font 15") {
 		t.Fatalf("selected result disappeared behind status:\n%s", view)
 	}
 	if !strings.Contains(view, model.status) {
 		t.Fatalf("status missing from view:\n%s", view)
+	}
+}
+
+func TestCompactResultsKeepCompleteMetadataBesideStatus(t *testing.T) {
+	model := NewModel([]provider.Result{
+		{Filename: "Example-Regular.otf", Format: "otf", Source: "fixture"},
+		{Filename: "Example-Bold.otf", Format: "otf", Source: "fixture"},
+	}, nil, false)
+	model.status = "Downloaded: /tmp/Example-Regular.otf"
+	model = sizedModel(t, model, 24, 8)
+
+	view := model.View()
+	assertViewFits(t, view, 24, 8)
+	for _, wanted := range []string{"Example", "OTF", "Downloaded"} {
+		if !strings.Contains(view, wanted) {
+			t.Fatalf("compact status view lost %q:\n%s", wanted, view)
+		}
+	}
+
+	minimal := sizedModel(t, model, 24, 7)
+	minimalView := minimal.View()
+	assertViewFits(t, minimalView, 24, 7)
+	if !strings.Contains(minimalView, "Example") || !strings.Contains(minimalView, "Downloaded") {
+		t.Fatalf("one-line compact fallback lost the result or status:\n%s", minimalView)
 	}
 }
 
@@ -487,8 +941,12 @@ func TestLiveModelStreamsProviderEvents(t *testing.T) {
 		model = updated.(Model)
 		command = next
 	}
-	if model.loading || len(model.visible) != 1 || !strings.Contains(model.View(), "fixture: done (1 results)") {
+	if model.loading || len(model.visible) != 1 || !strings.Contains(model.View(), "Live") {
 		t.Fatalf("live model did not settle: %s", model.View())
+	}
+	model.screen = screenHealth
+	if !strings.Contains(model.View(), "done (1 results)") {
+		t.Fatalf("settled provider state is missing from Health: %s", model.View())
 	}
 }
 

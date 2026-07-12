@@ -80,6 +80,9 @@ func TestSearchRetriesOneProviderWithoutLosingAnother(t *testing.T) {
 	for event := range aggregate.Search(context.Background(), "Example", []string{"otf"}) {
 		if event.Type == provider.EventResult {
 			results++
+			if event.Result.Provider != event.Provider {
+				t.Fatalf("result provider = %q, event provider = %q", event.Result.Provider, event.Provider)
+			}
 		}
 		if event.Status == provider.StateThrottled {
 			throttled = true

@@ -40,7 +40,7 @@ func (source WebSearch) Search(ctx context.Context, query string, formats []stri
 	for backends > 0 {
 		select {
 		case event := <-backendEvents:
-			key := resultIdentity(event.Result)
+			key := ResultIdentity(event.Result)
 			if event.Type != EventResult || !seen[key] {
 				if event.Type == EventResult {
 					seen[key] = true
@@ -96,7 +96,7 @@ func (source WebSearch) searchSearXNG(ctx context.Context, query string, formats
 		}
 		successes++
 		for _, result := range search.results {
-			key := resultIdentity(result)
+			key := ResultIdentity(result)
 			if !seen[key] {
 				seen[key] = true
 				out <- Event{Type: EventResult, Result: result}
