@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	"github.com/microck/moji/internal/archivefont"
+	"github.com/microck/moji/internal/filecommit"
 	"github.com/microck/moji/internal/provider"
 	"github.com/microck/moji/internal/safehttp"
 )
@@ -178,7 +179,7 @@ func (d Downloader) Download(ctx context.Context, result provider.Result, destin
 		}
 		return File{}, fmt.Errorf("%s already contains a different file. Move or rename it, then try again", finalPath)
 	}
-	if err := moveNoReplace(temporaryPath, finalPath); err != nil {
+	if err := filecommit.MoveNoReplace(temporaryPath, finalPath); err != nil {
 		if existing, readErr := os.ReadFile(finalPath); readErr == nil {
 			existingHash := sha256.Sum256(existing)
 			if hex.EncodeToString(existingHash[:]) == digest {
@@ -262,7 +263,7 @@ func commitBatchMoves(moves []batchMove) error {
 			}
 			return fmt.Errorf("Moji couldn't identify the staged family file %s: %w. Earlier family moves were rolled back", operation.from, statErr)
 		}
-		if err := moveNoReplace(operation.from, operation.to); err != nil {
+		if err := filecommit.MoveNoReplace(operation.from, operation.to); err != nil {
 			if rollbackErr := rollbackBatchMoves(committed); rollbackErr != nil {
 				return fmt.Errorf("Moji couldn't finish the family download at %s without overwriting a concurrent file: %w. Rollback was incomplete: %v", operation.to, err, rollbackErr)
 			}

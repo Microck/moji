@@ -9,9 +9,9 @@ Moji writes errors to stderr with the prefix `moji:`.
 
 | Code | Meaning | Examples |
 | --- | --- | --- |
-| `0` | Success | Results printed, dry run completed, download completed |
-| `1` | Operational failure | Provider outage, invalid downloaded content, filesystem failure |
-| `2` | Invalid usage | Missing query, unknown flag, unsupported format, invalid `--max` |
+| `0` | Success | Results printed, dry run completed, download or conversion completed |
+| `1` | Operational failure | Provider outage, invalid font content, codec failure, filesystem failure |
+| `2` | Invalid usage | Missing input, unknown flag, unsupported format or conversion pair, invalid `--max` |
 
 ## Common failures
 
@@ -42,6 +42,17 @@ For a single-font request, Moji continues through the ranked candidates and
 reports an aggregate error only if it cannot reach the requested success count.
 For an entire-family request, each same-source group is staged and either
 completed as a unit or discarded before the next group is tried.
+
+### Conversion was rejected
+
+Moji detects local font formats from their content. A truncated or malformed
+font is an operational failure. A recognized but unsupported conversion pair,
+such as TTF-to-OTF or a WOFF2 file whose embedded flavor does not match
+`--to`, is an invalid usage error.
+
+Move or rename an existing destination before retrying. Moji never replaces
+it. Failed conversion and output operations remove their temporary files, so
+an error does not leave a partial completed font behind.
 
 ### Config could not be parsed
 

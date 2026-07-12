@@ -9,7 +9,8 @@
   "files": [
     "bin/",
     "binaries/",
-    "README.md"
+    "README.md",
+    "third-party-notices.md"
   ],
   "engines": {
     "node": ">=18"
