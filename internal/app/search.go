@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"sort"
 	"strings"
@@ -17,6 +18,45 @@ import (
 	"github.com/microck/moji/internal/rank"
 	"github.com/microck/moji/internal/tui"
 )
+
+const githubCLITokenTimeout = 2 * time.Second
+
+// resolveGitHubToken adds an authenticated GitHub CLI session as the final
+// credential source for this invocation. The returned config is a copy, so a
+// token owned by gh can reach the provider without ever being saved by Moji.
+func resolveGitHubToken(ctx context.Context, current config.Config, requested string) config.Config {
+	github := current.Providers["github"]
+	if current.Token() != "" || github.Instance != "" || !githubProviderSelected(github.Enabled, requested) {
+		return current
+	}
+	executable, err := exec.LookPath("gh")
+	if err != nil {
+		return current
+	}
+	commandCtx, cancel := context.WithTimeout(ctx, githubCLITokenTimeout)
+	defer cancel()
+	command := exec.CommandContext(commandCtx, executable, "auth", "token", "--hostname", "github.com")
+	command.Env = append(os.Environ(), "GH_PROMPT_DISABLED=1")
+	command.Stderr = nil
+	output, err := command.Output()
+	if err != nil {
+		return current
+	}
+	current.GitHubToken = strings.TrimSpace(string(output))
+	return current
+}
+
+func githubProviderSelected(enabled bool, requested string) bool {
+	if requested == "" || requested == "all" {
+		return enabled
+	}
+	for _, raw := range strings.Split(requested, ",") {
+		if strings.EqualFold(strings.TrimSpace(raw), "github") {
+			return true
+		}
+	}
+	return false
+}
 
 func (application App) search(ctx context.Context, current config.Config, query string, formats []string, parsed options) ([]provider.Result, []string, error) {
 	events, providerCount, err := application.searchEvents(ctx, current, query, formats, parsed)
@@ -136,7 +176,7 @@ func (application App) runHome(ctx context.Context, current config.Config, forma
 	homeHint := ""
 	github := current.Providers["github"]
 	if github.Enabled && current.Token() == "" && github.Instance == "" {
-		homeHint = "GitHub search is limited. Set GITHUB_TOKEN to search code and more repositories."
+		homeHint = "GitHub search is limited. Run gh auth login or set GITHUB_TOKEN to search code and more repositories."
 	} else if !github.Enabled {
 		homeHint = "GitHub search is off. Enable it in the config to search more repositories."
 	}
