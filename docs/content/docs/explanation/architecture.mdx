@@ -5,34 +5,24 @@ description: How Moji separates providers, aggregation, ranking, interfaces, and
 
 Moji uses separate pipelines for remote discovery and local conversion:
 
-```mermaid
----
-title: Remote search and download
----
-flowchart LR
-  accTitle: Remote search and download pipeline
-  accDescr: A font query passes through enabled providers, aggregation and cache, normalization and ranking, presentation, and validated download.
-
-  query["Font query"] -->|fans out to| providers["Enabled providers"]
-  providers -->|emit typed events| aggregate["Aggregation and cache"]
-  aggregate -->|feeds| rank["Normalization, grouping, and ranking"]
-  rank -->|presents through| interface["TUI, table, JSON, or get"]
-  interface -->|selects result for| download["Validated download"]
+```text
+query
+  -> enabled providers
+  -> typed result and status events
+  -> aggregation and cache
+  -> normalization, grouping, and ranking
+  -> TUI, table, or JSON
+  -> validated download
 ```
 
-```mermaid
----
-title: Local conversion
----
-flowchart LR
-  accTitle: Local font conversion pipeline
-  accDescr: A local font passes through content-based format detection, WOFF2 encoding or decoding, output validation, and an atomic file commit.
+Local conversion is a separate pipeline:
 
-  input["Local TTF, OTF, or WOFF2"] -->|inspect bytes| detect["Content-based format detection"]
-  detect -->|choose codec operation| codec["WOFF2 encode or decode"]
-  codec -->|check output| validate["Output validation"]
-  validate -->|commit safely| commit["Atomic no-replace file commit"]
-
+```text
+local TTF, OTF, or WOFF2
+  -> content-based format detection
+  -> WOFF2 encode or decode
+  -> output validation
+  -> atomic no-replace file commit
 ```
 
 Conversion does not enter provider discovery, aggregation, ranking, cache,
