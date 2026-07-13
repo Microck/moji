@@ -3,30 +3,36 @@ title: Architecture
 description: How Moji separates providers, aggregation, ranking, interfaces, and downloads.
 ---
 
-Moji is organized as a pipeline with typed boundaries:
+Moji uses separate pipelines for remote discovery and local conversion:
 
-```text
-query
-  -> enabled providers
-  -> typed result and status events
-  -> aggregation and cache
-  -> normalization, grouping, and ranking
-  -> TUI, table, or JSON
-  -> validated download
+```mermaid
+---
+title: Moji operation pipelines
+---
+flowchart TB
+  accTitle: Remote discovery and local conversion pipelines
+  accDescr: Search queries pass through providers, aggregation, ranking, presentation, and validated download. Local fonts pass through format detection, WOFF2 encoding or decoding, output validation, and an atomic file commit.
+
+  subgraph remote["Remote search and download"]
+    direction LR
+    query["Font query"] -->|fans out to| providers["Enabled providers"]
+    providers -->|emit typed events| aggregate["Aggregation and cache"]
+    aggregate -->|feeds| rank["Normalization, grouping, and ranking"]
+    rank -->|presents through| interface["TUI, table, JSON, or get"]
+    interface -->|selects result for| download["Validated download"]
+  end
+
+  subgraph local["Local conversion"]
+    direction LR
+    input["Local TTF, OTF, or WOFF2"] -->|inspect bytes| detect["Content-based format detection"]
+    detect -->|choose codec operation| codec["WOFF2 encode or decode"]
+    codec -->|check output| validate["Output validation"]
+    validate -->|commit safely| commit["Atomic no-replace file commit"]
+  end
 ```
 
-Local conversion is a separate pipeline:
-
-```text
-local TTF, OTF, or WOFF2
-  -> content-based format detection
-  -> WOFF2 encode or decode
-  -> output validation
-  -> atomic no-replace file commit
-```
-
-It does not enter provider discovery, aggregation, ranking, cache, download,
-or TUI code.
+Conversion does not enter provider discovery, aggregation, ranking, cache,
+download, or TUI code.
 
 ## Providers own external contracts
 
