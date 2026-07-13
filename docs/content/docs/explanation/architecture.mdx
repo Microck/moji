@@ -3,27 +3,12 @@ title: Architecture
 description: How Moji separates providers, aggregation, ranking, interfaces, and downloads.
 ---
 
-Moji uses separate pipelines for remote discovery and local conversion:
-
-```text
-query
-  -> enabled providers
-  -> typed result and status events
-  -> aggregation and cache
-  -> normalization, grouping, and ranking
-  -> TUI, table, or JSON
-  -> validated download
-```
-
-Local conversion is a separate pipeline:
-
-```text
-local TTF, OTF, or WOFF2
-  -> content-based format detection
-  -> WOFF2 encode or decode
-  -> output validation
-  -> atomic no-replace file commit
-```
+Moji uses separate pipelines for remote discovery and local conversion.
+A font query passes through enabled providers, aggregation and cache,
+normalization and ranking, presentation, and validated download. Local
+conversion is a separate pipeline: a local font passes through content-based
+format detection, WOFF2 encoding or decoding, output validation, and an atomic
+file commit.
 
 Conversion does not enter provider discovery, aggregation, ranking, cache,
 download, or TUI code.
