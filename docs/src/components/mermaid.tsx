@@ -56,5 +56,10 @@ export function Mermaid({ chart }: { chart: string }) {
     };
   }, [chart, diagramId]);
 
-  return <div ref={containerRef} className="my-6 flex justify-center overflow-x-auto" />;
+  return (
+    <div
+      ref={containerRef}
+      className="my-6 flex justify-start overflow-x-auto [&_svg]:min-w-[56rem]"
+    />
+  );
 }
