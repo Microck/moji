@@ -9,7 +9,7 @@ Moji uses separate pipelines for remote discovery and local conversion:
 ---
 title: Remote search and download
 ---
-flowchart TD
+flowchart LR
   accTitle: Remote search and download pipeline
   accDescr: A font query passes through enabled providers, aggregation and cache, normalization and ranking, presentation, and validated download.
 
@@ -24,7 +24,7 @@ flowchart TD
 ---
 title: Local conversion
 ---
-flowchart TD
+flowchart LR
   accTitle: Local font conversion pipeline
   accDescr: A local font passes through content-based format detection, WOFF2 encoding or decoding, output validation, and an atomic file commit.
 
