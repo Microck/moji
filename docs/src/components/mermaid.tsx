@@ -21,6 +21,11 @@ export function Mermaid({ chart }: { chart: string }) {
       const dark = document.documentElement.classList.contains('dark');
 
       mermaid.initialize({
+        flowchart: {
+          nodeSpacing: 20,
+          rankSpacing: 25,
+          wrappingWidth: 130,
+        },
         startOnLoad: false,
         securityLevel: 'strict',
         theme: dark ? 'dark' : 'default',

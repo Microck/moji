@@ -7,28 +7,32 @@ Moji uses separate pipelines for remote discovery and local conversion:
 
 ```mermaid
 ---
-title: Moji operation pipelines
+title: Remote search and download
 ---
-flowchart TB
-  accTitle: Remote discovery and local conversion pipelines
-  accDescr: Search queries pass through providers, aggregation, ranking, presentation, and validated download. Local fonts pass through format detection, WOFF2 encoding or decoding, output validation, and an atomic file commit.
+flowchart TD
+  accTitle: Remote search and download pipeline
+  accDescr: A font query passes through enabled providers, aggregation and cache, normalization and ranking, presentation, and validated download.
 
-  subgraph remote["Remote search and download"]
-    direction LR
-    query["Font query"] -->|fans out to| providers["Enabled providers"]
-    providers -->|emit typed events| aggregate["Aggregation and cache"]
-    aggregate -->|feeds| rank["Normalization, grouping, and ranking"]
-    rank -->|presents through| interface["TUI, table, JSON, or get"]
-    interface -->|selects result for| download["Validated download"]
-  end
+  query["Font query"] -->|fans out to| providers["Enabled providers"]
+  providers -->|emit typed events| aggregate["Aggregation and cache"]
+  aggregate -->|feeds| rank["Normalization, grouping, and ranking"]
+  rank -->|presents through| interface["TUI, table, JSON, or get"]
+  interface -->|selects result for| download["Validated download"]
+```
 
-  subgraph local["Local conversion"]
-    direction LR
-    input["Local TTF, OTF, or WOFF2"] -->|inspect bytes| detect["Content-based format detection"]
-    detect -->|choose codec operation| codec["WOFF2 encode or decode"]
-    codec -->|check output| validate["Output validation"]
-    validate -->|commit safely| commit["Atomic no-replace file commit"]
-  end
+```mermaid
+---
+title: Local conversion
+---
+flowchart TD
+  accTitle: Local font conversion pipeline
+  accDescr: A local font passes through content-based format detection, WOFF2 encoding or decoding, output validation, and an atomic file commit.
+
+  input["Local TTF, OTF, or WOFF2"] -->|inspect bytes| detect["Content-based format detection"]
+  detect -->|choose codec operation| codec["WOFF2 encode or decode"]
+  codec -->|check output| validate["Output validation"]
+  validate -->|commit safely| commit["Atomic no-replace file commit"]
+
 ```
 
 Conversion does not enter provider discovery, aggregation, ranking, cache,
