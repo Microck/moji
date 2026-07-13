@@ -2,6 +2,8 @@
 
 import { useEffect, useId, useRef } from 'react';
 
+let renderSequence = 0;
+
 export function Mermaid({ chart }: { chart: string }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const diagramId = useId().replaceAll(':', '');
@@ -14,6 +16,8 @@ export function Mermaid({ chart }: { chart: string }) {
       if (!container) return;
 
       const { default: mermaid } = await import('mermaid');
+      if (cancelled) return;
+
       const dark = document.documentElement.classList.contains('dark');
 
       mermaid.initialize({
@@ -23,7 +27,11 @@ export function Mermaid({ chart }: { chart: string }) {
       });
 
       try {
-        const { svg } = await mermaid.render(`mermaid-${diagramId}`, chart);
+        // React can restart this effect, and theme changes can request another
+        // render. Mermaid uses the id for temporary DOM state, so every attempt
+        // needs its own id to prevent concurrent renders from emptying the SVG.
+        const renderId = `mermaid-${diagramId}-${renderSequence++}`;
+        const { svg } = await mermaid.render(renderId, chart);
         if (!cancelled) container.innerHTML = svg;
       } catch {
         if (!cancelled) container.textContent = chart;
