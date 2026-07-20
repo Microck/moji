@@ -21,5 +21,5 @@ export function getPageMarkdownUrl(page: (typeof source)['$inferPage']) {
 
 export async function getLLMText(page: (typeof source)['$inferPage']) {
   const processed = await page.data.getText('processed');
-  return `# ${page.data.title} (${page.url})\n\n${processed}`;
+  return `# ${page.data.title} (${page.url})\n\n> For the complete documentation index, see [llms.txt](/llms.txt). Markdown versions of pages are available at \`.md\` URLs.\n\n${processed}`;
 }

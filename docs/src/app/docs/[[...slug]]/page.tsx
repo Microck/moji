@@ -22,25 +22,6 @@ export default async function Page(props: PageProps<'/docs/[[...slug]]'>) {
 
   return (
     <DocsPage toc={page.data.toc} full={page.data.full}>
-      {/* Agent-friendly docs directive: hidden blockquote pointing to llms.txt */}
-      <blockquote
-        aria-hidden="true"
-        data-agent-docs
-        style={{
-          position: 'absolute',
-          width: '1px',
-          height: '1px',
-          padding: 0,
-          margin: '-1px',
-          overflow: 'hidden',
-          clip: 'rect(0, 0, 0, 0)',
-          whiteSpace: 'nowrap',
-          border: 0,
-        }}
-      >
-        For the complete documentation index, see <a href="/llms.txt">llms.txt</a>.
-        Markdown versions of pages are available at <code>.md</code> URLs.
-      </blockquote>
       <DocsTitle>{page.data.title}</DocsTitle>
       <DocsDescription className="mb-0">{page.data.description}</DocsDescription>
       <div className="flex items-center gap-2 border-b pb-6">
