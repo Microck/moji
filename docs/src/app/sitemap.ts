@@ -5,7 +5,7 @@ const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://moji.micr.dev';
 
 export default function sitemap(): MetadataRoute.Sitemap {
   return [
-    { url: siteUrl },
+    { url: new URL('/', siteUrl).toString() },
     ...source.getPages().map((page) => ({
       url: new URL(page.url, siteUrl).toString(),
     })),

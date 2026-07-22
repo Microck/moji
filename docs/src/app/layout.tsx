@@ -4,6 +4,7 @@ import { RootProvider } from 'fumadocs-ui/provider/next';
 import './global.css';
 
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://moji.micr.dev';
+const title = 'Moji - Font Downloader for the Terminal';
 const description = 'Find and safely download fonts from the terminal.';
 const structuredData = {
   '@context': 'https://schema.org',
@@ -30,20 +31,20 @@ const googleSansFlex = Google_Sans_Flex({
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
-  title: { default: 'Moji', template: '%s | Moji' },
+  title: { default: title, template: '%s | Moji' },
   description,
   applicationName: 'Moji',
-  alternates: { canonical: '/' },
+  alternates: { canonical: new URL('/', siteUrl).toString() },
   openGraph: {
     type: 'website',
     url: '/',
     siteName: 'Moji',
-    title: 'Moji',
+    title,
     description,
   },
   twitter: {
     card: 'summary',
-    title: 'Moji',
+    title,
     description,
     creator: '@JustMicrock',
   },
