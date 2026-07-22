@@ -7,14 +7,14 @@ const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://moji.micr.dev';
 const description = 'Find and safely download fonts from the terminal.';
 const structuredData = {
   '@context': 'https://schema.org',
-  '@type': 'SoftwareApplication',
+  '@type': 'SoftwareSourceCode',
   name: 'Moji',
   url: siteUrl,
   description,
-  applicationCategory: 'DeveloperApplication',
-  operatingSystem: 'Linux, macOS, Windows',
+  codeRepository: 'https://github.com/Microck/moji',
+  programmingLanguage: 'Rust',
+  runtimePlatform: 'Linux, macOS, Windows',
   isAccessibleForFree: true,
-  downloadUrl: 'https://github.com/Microck/moji/releases',
   sameAs: ['https://github.com/Microck/moji'],
 };
 
