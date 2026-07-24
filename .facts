@@ -1,7 +1,0 @@
-
-# docs
-
-## seo
-- label: the Moji documentation exposes production canonical metadata, social cards, SoftwareSourceCode structured data, permissive robots directives, and a sitemap covering every documentation page without changing visible documentation content
-  command: cd docs && npm run build
-  tags: [implemented]
