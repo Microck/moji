@@ -11,9 +11,10 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-000000?style=flat-square" alt="MIT license badge"></a>
 </p>
 
-<a href="docs/public/moji-tui-demo-1080p.mp4">
-  <img src="docs/public/moji-tui-demo-1080p.gif" alt="Moji TUI walkthrough" width="960">
-</a>
+
+https://github.com/user-attachments/assets/33fafa72-7974-4fb1-b107-98bfef03194a
+
+
 
 </div>
 
