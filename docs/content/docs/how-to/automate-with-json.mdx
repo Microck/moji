@@ -18,6 +18,20 @@ Search output is an array of result objects. Each object includes:
 - `archive_format` and `archive_member` when the font is inside an archive
 - the calculated `score`
 
+Inspect a local font when a script needs to verify language coverage:
+
+```sh
+moji inspect Inter.woff2 --json |
+  jq '.scripts[] | select(.name == "Cyrillic")'
+```
+
+Inspection output is one object with the file `path`, detected `format`,
+optional `family` and `subfamily`, `glyphs`, `unicode_version`,
+`encoded_characters`, and a `scripts` array. Each script entry contains its
+`name`, `encoded` and `assigned` character counts, and numeric `coverage`
+percentage. `encoded_characters` counts every mapped Unicode scalar, including
+private-use characters. Scripts with zero encoded characters are omitted.
+
 ## Select a field with jq
 
 ```sh

@@ -91,6 +91,7 @@ Usage:
   moji <query> [flags]                 Search and print ranked results
   moji get <query> [flags]             Download the best matching font
   moji convert <input> [flags]          Convert TTF/OTF to or from WOFF2
+  moji inspect <input> [--json]         Report Unicode script coverage
   moji config [show]                   Edit or display configuration
   moji cache clear                     Clear cached search results
   moji --version
@@ -102,6 +103,7 @@ Examples:
   moji get "Futura bold" --dry-run
   moji get "Futura bold" --download-dir ~/Downloads/moji
   moji convert Inter.ttf
+  moji inspect Inter.ttf
 
 Flags:
   -f, --format <list>                  otf, ttf, woff, woff2, dfont, pfb, pfm
@@ -134,5 +136,22 @@ Flags:
       --to <format>                    Target ttf, otf, or woff2 (inferred by default)
   -o, --output <path>                  Output path (beside input by default)
       --json                           Machine-readable conversion details
+  -h, --help                           Show help
+`
+
+var inspectHelpText = `文字  moji inspect - report a local font's Unicode script coverage
+
+Usage:
+  moji inspect <input> [--json]
+
+Examples:
+  moji inspect Inter.ttf
+  moji inspect Inter.woff2 --json
+
+Supported formats:
+  TTF, OTF, and WOFF2
+
+Flags:
+      --json                           Machine-readable inspection details
   -h, --help                           Show help
 `

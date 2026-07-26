@@ -46,6 +46,10 @@ func (application App) Run(ctx context.Context, args []string) int {
 		fmt.Fprint(application.Stdout, convertHelpText)
 		return 0
 	}
+	if len(args) > 0 && args[0] == "inspect" && containsHelp(args[1:]) {
+		fmt.Fprint(application.Stdout, inspectHelpText)
+		return 0
+	}
 	if containsHelp(args) {
 		fmt.Fprint(application.Stdout, helpText)
 		return 0
@@ -56,6 +60,9 @@ func (application App) Run(ctx context.Context, args []string) int {
 	}
 	if len(args) > 0 && args[0] == "convert" {
 		return application.runConvert(args[1:])
+	}
+	if len(args) > 0 && args[0] == "inspect" {
+		return application.runInspect(args[1:])
 	}
 	if len(args) == 0 && (!isTerminal(application.Stdin) || !isTerminal(application.Stdout)) {
 		return application.fail(errors.New("font query is required in non-interactive mode; example: moji \"Futura\""), 2)
