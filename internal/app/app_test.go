@@ -435,6 +435,130 @@ func TestConvertHelpIsCommandSpecific(t *testing.T) {
 	}
 }
 
+func TestRunInspectsLocalFontWithoutLoadingProviderConfig(t *testing.T) {
+	root := t.TempDir()
+	configPath := filepath.Join(root, "invalid-config.yaml")
+	if err := os.WriteFile(configPath, []byte("not: [valid"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("MOJI_CONFIG", configPath)
+	input := writeConversionFixture(t, root, "test-ttf.base64", "font.bin")
+	var stdout, stderr bytes.Buffer
+
+	code := (App{Stdout: &stdout, Stderr: &stderr}).Run(context.Background(), []string{"inspect", input, "--json"})
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%q", code, stderr.String())
+	}
+	var inspected struct {
+		Path              string `json:"path"`
+		Format            string `json:"format"`
+		Glyphs            int    `json:"glyphs"`
+		UnicodeVersion    string `json:"unicode_version"`
+		EncodedCharacters int    `json:"encoded_characters"`
+		Scripts           []struct {
+			Name     string  `json:"name"`
+			Encoded  int     `json:"encoded"`
+			Assigned int     `json:"assigned"`
+			Coverage float64 `json:"coverage"`
+		} `json:"scripts"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &inspected); err != nil {
+		t.Fatalf("JSON output = %q: %v", stdout.String(), err)
+	}
+	if inspected.Path != input || inspected.Format != "ttf" || inspected.Glyphs <= 0 ||
+		inspected.UnicodeVersion == "" || inspected.EncodedCharacters <= 0 || len(inspected.Scripts) == 0 {
+		t.Fatalf("inspection JSON = %#v", inspected)
+	}
+}
+
+func TestRunInspectReportsPlainCoverage(t *testing.T) {
+	t.Parallel()
+	input := writeConversionFixture(t, t.TempDir(), "test-woff2.base64", "font.woff2")
+	var stdout, stderr bytes.Buffer
+
+	code := (App{Stdout: &stdout, Stderr: &stderr}).Run(context.Background(), []string{"inspect", input})
+	if code != 0 || stderr.Len() != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	for _, expected := range []string{"Path:", "Format:", "Glyphs:", "Unicode:", "Script", "Encoded", "Assigned", "Coverage"} {
+		if !strings.Contains(stdout.String(), expected) {
+			t.Fatalf("plain inspection omitted %q: %s", expected, stdout.String())
+		}
+	}
+}
+
+func TestRunInspectEscapesTerminalControlsOnlyInPlainOutput(t *testing.T) {
+	t.Parallel()
+	input := writeConversionFixture(t, t.TempDir(), "test-ttf.base64", "font\n\x1b.ttf")
+	var stdout, stderr bytes.Buffer
+	application := App{Stdout: &stdout, Stderr: &stderr}
+
+	if code := application.Run(context.Background(), []string{"inspect", input}); code != 0 {
+		t.Fatalf("plain code=%d stderr=%q", code, stderr.String())
+	}
+	if strings.Contains(stdout.String(), "\x1b") || strings.Contains(stdout.String(), "font\n") {
+		t.Fatalf("plain inspection contains terminal controls: %q", stdout.String())
+	}
+	if !strings.Contains(stdout.String(), `font\u000A\u001B.ttf`) {
+		t.Fatalf("plain inspection did not visibly escape controls: %q", stdout.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := application.Run(context.Background(), []string{"inspect", input, "--json"}); code != 0 {
+		t.Fatalf("JSON code=%d stderr=%q", code, stderr.String())
+	}
+	var inspected struct {
+		Path string `json:"path"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &inspected); err != nil || inspected.Path != input {
+		t.Fatalf("JSON path=%q err=%v, want raw path %q", inspected.Path, err, input)
+	}
+}
+
+func TestEscapeTerminalControlsCoversTerminalFormatting(t *testing.T) {
+	t.Parallel()
+	input := "safe\x00\x1b\x7f\u0085\u061C\u200D\u202A\u202E\u2066\u2069text"
+	expected := `safe\u0000\u001B\u007F\u0085\u061C\u200D\u202A\u202E\u2066\u2069text`
+	if actual := escapeTerminalControls(input); actual != expected {
+		t.Fatalf("escaped controls = %q", actual)
+	}
+}
+
+func TestRunInspectMapsUsageAndOperationalFailures(t *testing.T) {
+	t.Parallel()
+	for name, args := range map[string][]string{
+		"missing input": {"inspect"},
+		"extra input":   {"inspect", "one.ttf", "two.ttf"},
+		"unknown flag":  {"inspect", "font.ttf", "--wat"},
+	} {
+		name, args := name, args
+		t.Run(name, func(t *testing.T) {
+			var stderr bytes.Buffer
+			if code := (App{Stdout: &bytes.Buffer{}, Stderr: &stderr}).Run(context.Background(), args); code != 2 {
+				t.Fatalf("code=%d stderr=%q", code, stderr.String())
+			}
+		})
+	}
+	bad := filepath.Join(t.TempDir(), "bad.ttf")
+	if err := os.WriteFile(bad, []byte("not a font"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stderr bytes.Buffer
+	if code := (App{Stdout: &bytes.Buffer{}, Stderr: &stderr}).Run(context.Background(), []string{"inspect", bad}); code != 1 {
+		t.Fatalf("invalid font code=%d stderr=%q", code, stderr.String())
+	}
+}
+
+func TestInspectHelpIsCommandSpecific(t *testing.T) {
+	t.Parallel()
+	var stdout bytes.Buffer
+	code := (App{Stdout: &stdout, Stderr: &bytes.Buffer{}}).Run(context.Background(), []string{"inspect", "--help"})
+	if code != 0 || !strings.Contains(stdout.String(), "moji inspect <input>") || strings.Contains(stdout.String(), "moji cache clear") {
+		t.Fatalf("code=%d help=%q", code, stdout.String())
+	}
+}
+
 func TestParseConvertOptionsAcceptsLongAndEqualsForms(t *testing.T) {
 	t.Parallel()
 	parsed, err := parseConvertOptions([]string{"font.ttf", "--to=woff2", "--output", "font.webfont", "--json"})

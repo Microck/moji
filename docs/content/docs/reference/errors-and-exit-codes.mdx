@@ -9,9 +9,9 @@ Moji writes errors to stderr with the prefix `moji:`.
 
 | Code | Meaning | Examples |
 | --- | --- | --- |
-| `0` | Success | Results printed, dry run completed, download or conversion completed |
+| `0` | Success | Results printed, dry run completed, download, conversion, or inspection completed |
 | `1` | Operational failure | Provider outage, invalid font content, codec failure, filesystem failure |
-| `2` | Invalid usage | Missing input, unknown flag, unsupported format or conversion pair, invalid `--max` |
+| `2` | Invalid usage | Missing input, unknown flag, unsupported format, conversion pair, or inspection container |
 
 ## Common failures
 
@@ -53,6 +53,13 @@ such as TTF-to-OTF or a WOFF2 file whose embedded flavor does not match
 Move or rename an existing destination before retrying. Moji never replaces
 it. Failed conversion and output operations remove their temporary files, so
 an error does not leave a partial completed font behind.
+
+### Inspection was rejected
+
+Moji inspects TTF, OTF, and WOFF2 fonts. A recognized but unsupported
+container is an invalid usage error. A malformed font, unreadable input, or
+character-map parsing failure is an operational error. Inspection never
+changes the input file.
 
 ### Config could not be parsed
 

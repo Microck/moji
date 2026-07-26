@@ -87,6 +87,28 @@ func Detect(content []byte) (Format, error) {
 	}
 }
 
+// DecodeSFNT returns the desktop SFNT bytes represented by a supported font
+// container. TTF and OTF data is returned unchanged; WOFF2 data is decoded
+// without changing its TrueType or CFF outlines.
+func DecodeSFNT(content []byte) ([]byte, Format, error) {
+	source, err := Detect(content)
+	if err != nil {
+		return nil, "", err
+	}
+	if source != FormatWOFF2 {
+		return content, source, nil
+	}
+	target, err := woff2DesktopFormat(content)
+	if err != nil {
+		return nil, "", err
+	}
+	decoded, err := convertBytes(content, target)
+	if err != nil {
+		return nil, "", err
+	}
+	return decoded, source, nil
+}
+
 func Convert(inputPath, outputPath string, requested Format) (Result, error) {
 	if strings.TrimSpace(inputPath) == "" {
 		return Result{}, errors.New("input path is required")

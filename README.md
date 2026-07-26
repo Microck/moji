@@ -73,6 +73,17 @@ conversion detects the input from its content and never replaces an existing
 output file. it changes the font container without changing TrueType or CFF
 glyph outlines.
 
+inspect a downloaded TTF, OTF, or WOFF2 font before using it:
+
+```bash
+moji inspect Inter.ttf
+moji inspect Inter.woff2 --json
+```
+
+inspection reads the font's character map and reports exact Unicode script
+coverage counts. This answers whether a font includes Cyrillic, Arabic, Han,
+or another script without relying on its filename.
+
 ## providers
 
 the default GetFonts and registry providers work without an account. GitHub's
@@ -110,6 +121,7 @@ configured.
 | `moji <query>` | search interactively or print a table when piped |
 | `moji get <query>` | rank results and download the best match |
 | `moji convert <input>` | convert TTF/OTF to WOFF2 or restore WOFF2 |
+| `moji inspect <input>` | report Unicode script coverage for a local font |
 | `moji config` | create the default config when needed and open `$EDITOR` |
 | `moji config show` | print the current config with its token redacted |
 | `moji cache clear` | remove cached provider results |

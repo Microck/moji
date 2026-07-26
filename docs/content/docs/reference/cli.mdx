@@ -10,6 +10,7 @@ moji
 moji <query> [flags]
 moji get <query> [flags]
 moji convert <input> [--to ttf|otf|woff2] [-o <output>] [--json]
+moji inspect <input> [--json]
 moji config [show]
 moji cache clear
 moji --version
@@ -94,6 +95,38 @@ Plain output reports `Converted: <path>`. `--json` prints this stable object:
   "sha256": "..."
 }
 ```
+
+### `moji inspect <input>`
+
+Read a local TTF, OTF, or WOFF2 font and report the Unicode scripts mapped by
+its character map. Inspection detects the source format from file content and
+does not load providers, use the result cache, or change the input file.
+
+```bash
+moji inspect Inter.ttf
+moji inspect Inter.woff2 --json
+```
+
+Plain output includes the file identity, font family when present, glyph
+count, Unicode data version, and a table like this:
+
+```text
+Script    Encoded  Assigned  Coverage
+Arabic    471      1368      34.43%
+Cyrillic  327      506       64.62%
+Latin     1110     1481      74.95%
+```
+
+`Encoded` is the number of assigned characters in that script whose character
+map entry points to a glyph. `Assigned` comes from the Go toolchain's Unicode
+script tables. `Coverage` is `Encoded / Assigned * 100`. Scripts with zero
+encoded characters are omitted, so a missing script means zero coverage.
+The top-level encoded-character count includes every mapped Unicode scalar,
+including private-use characters that do not belong to a named script.
+
+Inspection supports TTF, OTF, and WOFF2. It rejects font collections and the
+legacy WOFF1, dfont, PFB, and PFM formats. These formats need different
+character-map parsers, and PFM files contain metrics rather than glyphs.
 
 ### `moji config`
 
