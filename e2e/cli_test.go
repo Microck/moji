@@ -60,7 +60,7 @@ func TestMojiBinaryEndToEnd(t *testing.T) {
 
 	configPath := filepath.Join(root, "config.yaml")
 	downloadDirectory := filepath.Join(root, "downloads")
-	configBody := fmt.Sprintf("download_dir: %s\nsearch_timeout_seconds: 2\ncache_ttl_seconds: 60\ndefault_formats: [otf]\nproviders:\n  github:\n    enabled: false\n  getfonts:\n    enabled: true\n    instance: %s\n  registry:\n    enabled: false\n  websearch:\n    enabled: false\n", downloadDirectory, server.URL+"/api/search")
+	configBody := fmt.Sprintf("download_dir: %s\nsearch_timeout_seconds: 2\ncache_ttl_seconds: 60\ndefault_formats: [otf]\nproviders:\n  github:\n    enabled: false\n  getfonts:\n    enabled: true\n    instance: %s\n  fontsquirrel:\n    enabled: false\n  fontshare:\n    enabled: false\n  registry:\n    enabled: false\n  websearch:\n    enabled: false\n", downloadDirectory, server.URL+"/api/search")
 	if err := os.WriteFile(configPath, []byte(configBody), 0o600); err != nil {
 		t.Fatal(err)
 	}

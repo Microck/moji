@@ -42,15 +42,18 @@ func Default() Config {
 		SearchTimeoutSeconds: 15, CacheTTLSeconds: 3600,
 		DefaultFormats: []string{"otf", "ttf", "woff2", "dfont", "pfb", "pfm"}, Ranking: rank.DefaultWeights(),
 		RateLimits: map[string]RateLimitConfig{
-			"github":    {TimeoutSeconds: 15, Retries: 2},
-			"getfonts":  {TimeoutSeconds: 15, Retries: 1},
-			"registry":  {TimeoutSeconds: 15, Retries: 1},
-			"plugins":   {TimeoutSeconds: 20, Retries: 0},
-			"websearch": {TimeoutSeconds: 20, Retries: 0},
+			"github":       {TimeoutSeconds: 15, Retries: 2},
+			"getfonts":     {TimeoutSeconds: 15, Retries: 1},
+			"fontsquirrel": {TimeoutSeconds: 15, Retries: 1},
+			"fontshare":    {TimeoutSeconds: 15, Retries: 1},
+			"registry":     {TimeoutSeconds: 15, Retries: 1},
+			"plugins":      {TimeoutSeconds: 20, Retries: 0},
+			"websearch":    {TimeoutSeconds: 20, Retries: 0},
 		},
 		Providers: map[string]ProviderConfig{
-			"github": {Enabled: true}, "getfonts": {Enabled: true},
-			"registry": {Enabled: true}, "plugins": {Enabled: true}, "websearch": {Enabled: true},
+			"github": {Enabled: true}, "getfonts": {Enabled: true}, "fontsquirrel": {Enabled: false},
+			"fontshare": {Enabled: true}, "registry": {Enabled: true}, "plugins": {Enabled: true},
+			"websearch": {Enabled: true},
 		},
 	}
 }

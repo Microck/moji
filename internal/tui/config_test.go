@@ -22,9 +22,12 @@ func TestConfigModelEditsTogglesAndSaves(t *testing.T) {
 
 	model.cursor = 5
 	model = updateConfigModel(t, model, tea.KeyMsg{Type: tea.KeySpace})
-	model.fields[14].value = "9"
-	model.fields[20].value = "21"
-	model.fields[21].value = "4"
+	model.fields[configFieldIndex(t, model, "fontsquirrel enabled")].value = "true"
+	model.fields[configFieldIndex(t, model, "fontsquirrel instance")].value = "https://fonts.example"
+	model.fields[configFieldIndex(t, model, "fontshare instance")].value = "https://fontshare.example"
+	model.fields[configFieldIndex(t, model, "Ranking: format")].value = "9"
+	model.fields[configFieldIndex(t, model, "github timeout")].value = "21"
+	model.fields[configFieldIndex(t, model, "github retries")].value = "4"
 	model = updateConfigModel(t, model, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
 	if !model.saved {
 		t.Fatalf("config was not saved: %s", model.status)
@@ -35,6 +38,8 @@ func TestConfigModelEditsTogglesAndSaves(t *testing.T) {
 		t.Fatal(err)
 	}
 	if saved.DownloadDir != "/tmp/fonts" || saved.Providers["github"].Enabled || saved.Ranking.Format != 9 ||
+		!saved.Providers["fontsquirrel"].Enabled || saved.Providers["fontsquirrel"].Instance != "https://fonts.example" ||
+		saved.Providers["fontshare"].Instance != "https://fontshare.example" ||
 		saved.RateLimits["github"].TimeoutSeconds != 21 || saved.RateLimits["github"].Retries != 4 {
 		t.Fatalf("saved config = %#v", saved)
 	}
@@ -95,4 +100,15 @@ func updateConfigModel(t *testing.T, model ConfigModel, message tea.Msg) ConfigM
 	t.Helper()
 	updated, _ := model.Update(message)
 	return updated.(ConfigModel)
+}
+
+func configFieldIndex(t *testing.T, model ConfigModel, label string) int {
+	t.Helper()
+	for index, field := range model.fields {
+		if field.label == label {
+			return index
+		}
+	}
+	t.Fatalf("config field %q was not found", label)
+	return -1
 }

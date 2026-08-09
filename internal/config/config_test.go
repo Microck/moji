@@ -50,6 +50,22 @@ func TestParseFormats(t *testing.T) {
 	}
 }
 
+func TestDefaultConfiguresArchiveCatalogProviders(t *testing.T) {
+	t.Parallel()
+	current := Default()
+	if current.Providers["fontsquirrel"].Enabled {
+		t.Fatal("Font Squirrel should require explicit selection because its site protection can block API clients")
+	}
+	if !current.Providers["fontshare"].Enabled {
+		t.Fatal("Fontshare is not enabled")
+	}
+	for _, name := range []string{"fontsquirrel", "fontshare"} {
+		if current.RateLimits[name].TimeoutSeconds <= 0 {
+			t.Fatalf("provider %q has no timeout policy", name)
+		}
+	}
+}
+
 func TestEnvironmentTokenPrecedesConfig(t *testing.T) {
 	t.Setenv("GITHUB_TOKEN", "environment")
 	config := Default()

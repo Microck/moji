@@ -53,13 +53,37 @@ type CachedProvider struct {
 	Bypass bool
 }
 
+type cacheNamespacer interface {
+	CacheNamespace() string
+}
+
+type cacheQueryProvider interface {
+	CacheQuery(string) string
+}
+
 func (cached CachedProvider) Name() string { return cached.Source.Name() }
 func (cached CachedProvider) Search(ctx context.Context, query string, formats []string, out chan<- provider.Event) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	namespace := cached.Name()
+	if source, ok := cached.Source.(cacheNamespacer); ok {
+		namespace = source.CacheNamespace()
+	}
+	cacheQuery := query
+	if source, ok := cached.Source.(cacheQueryProvider); ok {
+		cacheQuery = source.CacheQuery(query)
+	}
 	if !cached.Bypass {
-		results, hit, err := cached.Store.Get(query, cached.Name(), formats)
+		results, hit, err := cached.Store.Get(cacheQuery, namespace, formats)
 		if err == nil && hit {
 			for _, result := range results {
-				out <- provider.Event{Type: provider.EventResult, Result: result}
+				if !forwardEvent(ctx, out, provider.Event{Type: provider.EventResult, Result: result}) {
+					return ctx.Err()
+				}
+			}
+			if err := ctx.Err(); err != nil {
+				return err
 			}
 			return nil
 		}
@@ -68,21 +92,47 @@ func (cached CachedProvider) Search(ctx context.Context, query string, formats [
 	events := make(chan provider.Event)
 	done := make(chan error, 1)
 	go func() { done <- cached.Source.Search(ctx, query, formats, events) }()
+	ctxDone := ctx.Done()
+	canceled := false
 	for {
 		select {
 		case event := <-events:
+			if canceled {
+				// Keep draining until the source returns so an in-flight send cannot
+				// strand the provider goroutine after downstream cancellation.
+				continue
+			}
 			if event.Type == provider.EventResult {
 				captured = append(captured, event.Result)
 			}
-			out <- event
+			if !forwardEvent(ctx, out, event) {
+				canceled = true
+				ctxDone = nil
+			}
 		case err := <-done:
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return ctxErr
+			}
 			if err == nil && !cached.Bypass {
-				_ = cached.Store.Put(query, cached.Name(), formats, captured)
+				_ = cached.Store.Put(cacheQuery, namespace, formats, captured)
 			}
 			return err
-		case <-ctx.Done():
-			return ctx.Err()
+		case <-ctxDone:
+			canceled = true
+			ctxDone = nil
 		}
+	}
+}
+
+func forwardEvent(ctx context.Context, out chan<- provider.Event, event provider.Event) bool {
+	if ctx.Err() != nil {
+		return false
+	}
+	select {
+	case out <- event:
+		return true
+	case <-ctx.Done():
+		return false
 	}
 }
 

@@ -135,21 +135,7 @@ func fetchDiscoveryContent(ctx context.Context, client *http.Client, rawURL stri
 }
 
 func fetchDiscoveryContentWithType(ctx context.Context, client *http.Client, rawURL string, maximum int64, requireBinary bool) ([]byte, string, error) {
-	allowPrivate, _ := ctx.Value(privateDiscoveryContextKey{}).(bool)
-	clientCopy := safehttp.Constrain(client, allowPrivate)
-	originalRedirect := clientCopy.CheckRedirect
-	clientCopy.CheckRedirect = func(request *http.Request, via []*http.Request) error {
-		if request.URL.Scheme != "https" {
-			return errors.New("discovery redirected to an insecure URL")
-		}
-		if len(via) >= 5 {
-			return errors.New("discovery redirected more than 5 times")
-		}
-		if originalRedirect != nil {
-			return originalRedirect(request, via)
-		}
-		return nil
-	}
+	clientCopy := constrainedDiscoveryClient(ctx, client)
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
 		return nil, "", err
@@ -159,8 +145,11 @@ func fetchDiscoveryContentWithType(ctx context.Context, client *http.Client, raw
 		return nil, "", fmt.Errorf("%w: discovery request: %v", ErrUnavailable, err)
 	}
 	defer response.Body.Close()
+	if strings.EqualFold(response.Header.Get("X-Amzn-Waf-Action"), "challenge") {
+		return nil, "", fmt.Errorf("%w: site challenge", ErrBlocked)
+	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return nil, "", nil
+		return nil, "", providerHTTPStatusError(response.StatusCode)
 	}
 	if response.ContentLength > maximum {
 		return nil, "", errors.New("discovery response exceeds the size limit")
@@ -177,6 +166,36 @@ func fetchDiscoveryContentWithType(ctx context.Context, client *http.Client, raw
 		return nil, "", errors.New("discovery response exceeds the size limit")
 	}
 	return content, contentType, nil
+}
+
+func providerHTTPStatusError(statusCode int) error {
+	switch statusCode {
+	case http.StatusTooManyRequests:
+		return fmt.Errorf("%w: HTTP %d", ErrRateLimited, statusCode)
+	case http.StatusForbidden:
+		return fmt.Errorf("%w: HTTP %d", ErrBlocked, statusCode)
+	default:
+		return fmt.Errorf("%w: HTTP %d", ErrBadResponse, statusCode)
+	}
+}
+
+func constrainedDiscoveryClient(ctx context.Context, client *http.Client) *http.Client {
+	allowPrivate, _ := ctx.Value(privateDiscoveryContextKey{}).(bool)
+	clientCopy := safehttp.Constrain(client, allowPrivate)
+	originalRedirect := clientCopy.CheckRedirect
+	clientCopy.CheckRedirect = func(request *http.Request, via []*http.Request) error {
+		if request.URL.Scheme != "https" {
+			return errors.New("discovery redirected to an insecure URL")
+		}
+		if len(via) >= 5 {
+			return errors.New("discovery redirected more than 5 times")
+		}
+		if originalRedirect != nil {
+			return originalRedirect(request, via)
+		}
+		return nil
+	}
+	return &clientCopy
 }
 
 func pageContentType(value string) bool {

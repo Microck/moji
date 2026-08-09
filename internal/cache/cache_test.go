@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -20,6 +21,37 @@ func (skippedProvider) Search(context.Context, string, []string, chan<- provider
 	return provider.ErrSearchSkipped
 }
 
+type forwardingProvider struct {
+	forwarded chan struct{}
+	finished  chan struct{}
+}
+
+func (forwardingProvider) Name() string { return "forwarding" }
+func (source forwardingProvider) Search(_ context.Context, _ string, _ []string, out chan<- provider.Event) error {
+	out <- provider.Event{Type: provider.EventResult, Result: provider.Result{Filename: "Example-Regular.otf"}}
+	close(source.forwarded)
+	out <- provider.Event{Type: provider.EventResult, Result: provider.Result{Filename: "Example-Bold.otf"}}
+	close(source.finished)
+	return nil
+}
+
+type namespacedProvider struct {
+	namespace string
+	filename  string
+	calls     *int
+}
+
+func (source namespacedProvider) Name() string           { return "namespaced" }
+func (source namespacedProvider) CacheNamespace() string { return source.namespace }
+func (source namespacedProvider) CacheQuery(query string) string {
+	return strings.ReplaceAll(query, " ", "")
+}
+func (source namespacedProvider) Search(_ context.Context, _ string, _ []string, out chan<- provider.Event) error {
+	(*source.calls)++
+	out <- provider.Event{Type: provider.EventResult, Result: provider.Result{Filename: source.filename}}
+	return nil
+}
+
 func TestCachedProviderDoesNotCacheSkippedSearch(t *testing.T) {
 	t.Parallel()
 	store := Store{Directory: t.TempDir(), TTL: time.Hour}
@@ -31,6 +63,117 @@ func TestCachedProviderDoesNotCacheSkippedSearch(t *testing.T) {
 	_, hit, getErr := store.Get("ProximaNova", "skipped", []string{"ttf"})
 	if getErr != nil || hit {
 		t.Fatalf("cache hit = %v, error = %v; skipped search must not be cached", hit, getErr)
+	}
+}
+
+func TestCachedProviderCancelsBlockedCacheHitForwarding(t *testing.T) {
+	t.Parallel()
+	store := Store{Directory: t.TempDir(), TTL: time.Hour}
+	if err := store.Put("Example", "skipped", []string{"otf"}, []provider.Result{{Filename: "Example.otf"}}); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		done <- (CachedProvider{Source: skippedProvider{}, Store: store}).Search(
+			ctx, "Example", []string{"otf"}, make(chan provider.Event),
+		)
+	}()
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("error = %v, want context.Canceled", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("cache-hit forwarding did not stop after cancellation")
+	}
+}
+
+func TestCachedProviderReturnsPreCanceledContextForEmptyCacheHit(t *testing.T) {
+	t.Parallel()
+	store := Store{Directory: t.TempDir(), TTL: time.Hour}
+	if err := store.Put("Example", "skipped", []string{"otf"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	err := (CachedProvider{Source: skippedProvider{}, Store: store}).Search(
+		ctx, "Example", []string{"otf"}, make(chan provider.Event, 1),
+	)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("error = %v, want context.Canceled", err)
+	}
+}
+
+func TestCachedProviderCancelsBlockedLiveForwarding(t *testing.T) {
+	t.Parallel()
+	forwarded := make(chan struct{})
+	finished := make(chan struct{})
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		done <- (CachedProvider{Source: forwardingProvider{forwarded: forwarded, finished: finished}, Bypass: true}).Search(
+			ctx, "Example", []string{"otf"}, make(chan provider.Event),
+		)
+	}()
+	<-forwarded
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("error = %v, want context.Canceled", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("live forwarding did not stop after cancellation")
+	}
+	select {
+	case <-finished:
+	case <-time.After(time.Second):
+		t.Fatal("live forwarding stranded the source provider")
+	}
+}
+
+func TestCachedProviderSeparatesProviderNamespaces(t *testing.T) {
+	t.Parallel()
+	store := Store{Directory: t.TempDir(), TTL: time.Hour}
+	firstCalls, secondCalls := 0, 0
+	for _, test := range []struct {
+		source namespacedProvider
+		want   string
+	}{
+		{source: namespacedProvider{namespace: "namespaced:first", filename: "First.otf", calls: &firstCalls}, want: "First.otf"},
+		{source: namespacedProvider{namespace: "namespaced:second", filename: "Second.otf", calls: &secondCalls}, want: "Second.otf"},
+	} {
+		out := make(chan provider.Event, 1)
+		if err := (CachedProvider{Source: test.source, Store: store}).Search(context.Background(), "Example", []string{"otf"}, out); err != nil {
+			t.Fatal(err)
+		}
+		if got := (<-out).Result.Filename; got != test.want {
+			t.Fatalf("filename = %q, want %q", got, test.want)
+		}
+	}
+	if firstCalls != 1 || secondCalls != 1 {
+		t.Fatalf("provider calls = %d, %d; want 1, 1", firstCalls, secondCalls)
+	}
+}
+
+func TestCachedProviderUsesCanonicalProviderQuery(t *testing.T) {
+	t.Parallel()
+	store := Store{Directory: t.TempDir(), TTL: time.Hour}
+	calls := 0
+	source := namespacedProvider{namespace: "namespaced:one", filename: "Example.otf", calls: &calls}
+	for _, query := range []string{"Example Font", "ExampleFont"} {
+		out := make(chan provider.Event, 1)
+		if err := (CachedProvider{Source: source, Store: store}).Search(context.Background(), query, []string{"otf"}, out); err != nil {
+			t.Fatal(err)
+		}
+		if got := (<-out).Result.Filename; got != "Example.otf" {
+			t.Fatalf("filename = %q, want Example.otf", got)
+		}
+	}
+	if calls != 1 {
+		t.Fatalf("provider calls = %d, want 1", calls)
 	}
 }
 

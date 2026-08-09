@@ -109,7 +109,7 @@ Flags:
   -f, --format <list>                  otf, ttf, woff, woff2, dfont, pfb, pfm
   -w, --weight <name>                  Filter by font weight
   -n, --max <count>                    Maximum results or downloads
---provider <list>                github,getfonts,registry,plugins,websearch
+      --provider <list>                github,getfonts,fontsquirrel,fontshare,registry,plugins,websearch
       --json                           Machine-readable output
       --dry-run                        Preview get downloads
   -d, --download-dir <path>            Download destination

@@ -36,6 +36,12 @@ rate_limits:
   getfonts:
     timeout_seconds: 15
     retries: 1
+  fontsquirrel:
+    timeout_seconds: 15
+    retries: 1
+  fontshare:
+    timeout_seconds: 15
+    retries: 1
   registry:
     timeout_seconds: 15
     retries: 1
@@ -51,6 +57,12 @@ providers:
     enabled: true
   getfonts:
     enabled: true
+  fontsquirrel:
+    enabled: false
+    instance: ""
+  fontshare:
+    enabled: true
+    instance: ""
   registry:
     enabled: true
   plugins:
@@ -73,6 +85,9 @@ providers:
 | `ranking` | mapping | shown above | Relative score weights |
 | `rate_limits` | mapping | shown above | Per-provider timeout and retry count |
 | `providers` | mapping | shown above | Provider enablement and optional instance |
+
+`providers.fontsquirrel.instance` and `providers.fontshare.instance` can replace
+the official API base URL. Leave them empty for the public catalogs.
 
 ## Environment variables
 

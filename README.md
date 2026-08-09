@@ -86,7 +86,10 @@ or another script without relying on its filename.
 
 ## providers
 
-the default GetFonts and registry providers work without an account. GitHub's
+the default GetFonts, Fontshare, and registry providers work without an
+account. Font Squirrel is available through `--provider fontsquirrel`, but is
+off by default because its site protection can block API clients. Both catalog
+providers inspect official download archives for the formats you requested. GitHub's
 repository, tree, and release search also uses its small unauthenticated
 allowance. Moji automatically uses an existing authenticated `gh` session when
 GitHub CLI is installed. `GITHUB_TOKEN` and `github_token` take precedence and
@@ -160,6 +163,10 @@ providers:
   github:
     enabled: true
   getfonts:
+    enabled: true
+  fontsquirrel:
+    enabled: false
+  fontshare:
     enabled: true
   registry:
     enabled: true

@@ -14,6 +14,34 @@ description: Availability, authentication, trust, and fallback behavior.
 
 GetFonts is the zero-configuration default.
 
+## Font Squirrel
+
+- Name: `fontsquirrel`
+- Default: disabled because site protection can challenge API clients
+- Authentication: none
+- Endpoint: Font Squirrel's JSON family catalog and official ZIP downloads
+- Result trust: untrusted download bytes
+- License: `unknown`; check the license file included with the family
+
+Moji matches the query against the catalog, inspects up to three closest family
+archives, and emits only members in the requested formats. Archive paths, entry
+counts, and expanded sizes pass through the same fixed safety limits as web
+search downloads. Select it explicitly with `--provider fontsquirrel` or enable
+it in the config. A site challenge is reported as a blocked provider.
+
+## Fontshare
+
+- Name: `fontshare`
+- Default: enabled
+- Authentication: none
+- Endpoint: Fontshare's v2 catalog and official family ZIP downloads
+- Result trust: untrusted download bytes
+- License: the catalog's `license_type` value when present, otherwise `unknown`
+
+Fontshare uses the same bounded family matching and archive inspection path as
+Font Squirrel. A catalog license code identifies the agreement to check; it is
+not a substitute for reading that agreement before redistribution.
+
 ## GitHub
 
 - Name: `github`

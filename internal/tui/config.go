@@ -35,7 +35,7 @@ type ConfigModel struct {
 }
 
 func NewConfigModel(current config.Config, path string, color bool) ConfigModel {
-	providers := []string{"github", "getfonts", "registry", "plugins", "websearch"}
+	providers := configurableProviderNames()
 	fields := []configField{
 		{label: "Download directory", value: current.DownloadDir},
 		{label: "GitHub token", value: current.GitHubToken, secret: true},
@@ -46,7 +46,7 @@ func NewConfigModel(current config.Config, path string, color bool) ConfigModel 
 	for _, name := range providers {
 		setting := current.Providers[name]
 		fields = append(fields, configField{label: name + " enabled", value: strconv.FormatBool(setting.Enabled), boolean: true})
-		if name == "github" || name == "getfonts" || name == "websearch" {
+		if providerHasInstance(name) {
 			fields = append(fields, configField{label: name + " instance", value: setting.Instance})
 		}
 	}
@@ -165,11 +165,11 @@ func (model ConfigModel) config() (config.Config, error) {
 	updated.DefaultFormats = formats
 
 	index := 5
-	for _, name := range []string{"github", "getfonts", "registry", "plugins", "websearch"} {
+	for _, name := range configurableProviderNames() {
 		setting := updated.Providers[name]
 		setting.Enabled = model.fields[index].value == "true"
 		index++
-		if name == "github" || name == "getfonts" || name == "websearch" {
+		if providerHasInstance(name) {
 			setting.Instance = strings.TrimSpace(model.fields[index].value)
 			index++
 		}
@@ -197,7 +197,7 @@ func (model ConfigModel) config() (config.Config, error) {
 		*destination = value
 		index++
 	}
-	for _, name := range []string{"github", "getfonts", "registry", "plugins", "websearch"} {
+	for _, name := range configurableProviderNames() {
 		timeout, err := positiveInt(model.fields[index].value, name+" timeout")
 		if err != nil {
 			return config.Config{}, err
@@ -211,6 +211,14 @@ func (model ConfigModel) config() (config.Config, error) {
 		updated.RateLimits[name] = config.RateLimitConfig{TimeoutSeconds: timeout, Retries: retries}
 	}
 	return updated, nil
+}
+
+func configurableProviderNames() []string {
+	return []string{"github", "getfonts", "fontsquirrel", "fontshare", "registry", "plugins", "websearch"}
+}
+
+func providerHasInstance(name string) bool {
+	return name == "github" || name == "getfonts" || name == "fontsquirrel" || name == "fontshare" || name == "websearch"
 }
 
 func formatFloat(value float64) string { return strconv.FormatFloat(value, 'f', -1, 64) }
