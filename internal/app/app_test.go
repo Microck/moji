@@ -104,7 +104,7 @@ func TestRunSearchJSONAndGetDownload(t *testing.T) {
 
 	root := t.TempDir()
 	configPath := filepath.Join(root, "config.yaml")
-	configBody := fmt.Sprintf("download_dir: %s\nsearch_timeout_seconds: 2\ncache_ttl_seconds: 60\ndefault_formats: [otf]\nproviders:\n  github:\n    enabled: false\n  getfonts:\n    enabled: true\n    instance: %s\n  registry:\n    enabled: false\n  websearch:\n    enabled: false\n", filepath.Join(root, "fonts"), server.URL)
+	configBody := fmt.Sprintf("download_dir: %s\nsearch_timeout_seconds: 2\ncache_ttl_seconds: 60\ndefault_formats: [otf]\nproviders:\n  github:\n    enabled: false\n  getfonts:\n    enabled: true\n    instance: %s\n  fontsquirrel:\n    enabled: false\n  fontshare:\n    enabled: false\n  registry:\n    enabled: false\n  websearch:\n    enabled: false\n", filepath.Join(root, "fonts"), server.URL)
 	if err := os.WriteFile(configPath, []byte(configBody), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -187,7 +187,7 @@ func TestRunGetKeepsCandidatesBeyondRequestedMaximumForFallback(t *testing.T) {
 	defer server.Close()
 	root := t.TempDir()
 	configPath := filepath.Join(root, "config.yaml")
-	configBody := fmt.Sprintf("download_dir: %s\nsearch_timeout_seconds: 2\ncache_ttl_seconds: 60\ndefault_formats: [otf, ttf]\nproviders:\n  github:\n    enabled: false\n  getfonts:\n    enabled: true\n    instance: %s\n  registry:\n    enabled: false\n  websearch:\n    enabled: false\n", filepath.Join(root, "fonts"), server.URL)
+	configBody := fmt.Sprintf("download_dir: %s\nsearch_timeout_seconds: 2\ncache_ttl_seconds: 60\ndefault_formats: [otf, ttf]\nproviders:\n  github:\n    enabled: false\n  getfonts:\n    enabled: true\n    instance: %s\n  fontsquirrel:\n    enabled: false\n  fontshare:\n    enabled: false\n  registry:\n    enabled: false\n  websearch:\n    enabled: false\n", filepath.Join(root, "fonts"), server.URL)
 	if err := os.WriteFile(configPath, []byte(configBody), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -334,6 +334,13 @@ func TestRunRejectsUnsupportedProviderAndBadUsage(t *testing.T) {
 	stderr.Reset()
 	if code := application.Run(context.Background(), []string{"Futura", "--format", "exe"}); code != 2 {
 		t.Fatalf("usage exit code = %d", code)
+	}
+}
+
+func TestArchiveCatalogProviderNamesAreAccepted(t *testing.T) {
+	t.Parallel()
+	if err := validateProviderNames("fontsquirrel,fontshare"); err != nil {
+		t.Fatal(err)
 	}
 }
 

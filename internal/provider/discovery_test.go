@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -171,6 +172,19 @@ func TestDiscoveryRejectsInsecureRedirect(t *testing.T) {
 	defer secure.Close()
 	if _, err := fetchDiscoveryContent(localDiscoveryContext(), secure.Client(), secure.URL+"/family.css", 1024); err == nil {
 		t.Fatal("expected insecure redirect rejection")
+	}
+}
+
+func TestDiscoveryReportsSiteChallenge(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewTLSServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		response.Header().Set("X-Amzn-Waf-Action", "challenge")
+		response.WriteHeader(http.StatusAccepted)
+	}))
+	defer server.Close()
+	_, err := resolveDiscoveredURL(localDiscoveryContext(), server.Client(), server.URL+"/font.zip", "Example", map[string]bool{"otf": true})
+	if !errors.Is(err, ErrBlocked) {
+		t.Fatalf("error = %v, want ErrBlocked", err)
 	}
 }
 

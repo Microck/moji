@@ -103,7 +103,9 @@ func (application App) searchEvents(ctx context.Context, current config.Config, 
 	store := cache.Store{Directory: cacheDirectory, TTL: time.Duration(current.CacheTTLSeconds) * time.Second}
 	invalidURLs, _ := store.InvalidURLs()
 	available := map[string]provider.Provider{
-		"getfonts": provider.GetFonts{Client: application.Client, Endpoint: current.Providers["getfonts"].Instance},
+		"getfonts":     provider.GetFonts{Client: application.Client, Endpoint: current.Providers["getfonts"].Instance},
+		"fontsquirrel": provider.FontSquirrel{Client: application.Client, Endpoint: current.Providers["fontsquirrel"].Instance},
+		"fontshare":    provider.Fontshare{Client: application.Client, Endpoint: current.Providers["fontshare"].Instance},
 		"registry": provider.RegistrySearch{
 			Fontsource:  provider.Fontsource{Client: application.Client},
 			GoogleFonts: provider.GoogleFonts{Client: application.Client},
@@ -242,8 +244,8 @@ func validateProviderNames(value string) error {
 	}
 	for _, raw := range strings.Split(value, ",") {
 		name := strings.TrimSpace(strings.ToLower(raw))
-		if name != "github" && name != "getfonts" && name != "registry" && name != "plugins" && name != "websearch" {
-			return fmt.Errorf("unknown provider %q (choose github, getfonts, registry, plugins, or websearch)", name)
+		if name != "github" && name != "getfonts" && name != "fontsquirrel" && name != "fontshare" && name != "registry" && name != "plugins" && name != "websearch" {
+			return fmt.Errorf("unknown provider %q (choose github, getfonts, fontsquirrel, fontshare, registry, plugins, or websearch)", name)
 		}
 	}
 	return nil
