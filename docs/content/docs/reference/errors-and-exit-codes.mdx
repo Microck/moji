@@ -21,6 +21,11 @@ Check the provider-specific explanations that follow the first sentence.
 Verify connectivity and provider configuration, then retry. GetFonts remains
 the fallback when GitHub authentication is unavailable.
 
+In the TUI, press `H` when the results screen says a provider needs attention.
+The Health screen keeps the provider's actual error, wraps long messages, and
+names the setting or authentication command to fix. Use `j`/`k` to scroll when
+the terminal is too short to show every failure.
+
 ### GitHub search is not configured
 
 Set `GITHUB_TOKEN`, set `github_token` in the config, or pass

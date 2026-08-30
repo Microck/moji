@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 
 import {
@@ -111,4 +112,13 @@ test('classifies only explicit GitHub release 404s as missing', () => {
 	assert.equal(isMissingReleaseError('gh: Not Found (HTTP 404)'), true);
 	assert.equal(isMissingReleaseError('HTTP 503 Service Unavailable'), false);
 	assert.equal(isMissingReleaseError('authentication required'), false);
+});
+
+test('Homebrew formula consumes the canonical npm native-binary archive', async () => {
+	const formula = await readFile(new URL('../Formula/moji.rb', import.meta.url), 'utf8');
+	assert.match(formula, /url "https:\/\/registry\.npmjs\.org\/@microck\/moji\/-\/moji-[0-9.]+\.tgz"/);
+	assert.match(formula, /sha256 "[0-9a-f]{64}"/);
+	assert.match(formula, /platform = OS\.mac\? \? "darwin" : "linux"/);
+	assert.match(formula, /architecture = Hardware::CPU\.arm\? \? "arm64" : "x64"/);
+	assert.match(formula, /package\/binaries\/\#\{platform\}-\#\{architecture\}\/moji/);
 });

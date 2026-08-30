@@ -18,25 +18,42 @@ var (
 )
 
 func DescribeFailure(name string, err error) string {
+	detail := ""
+	if err != nil {
+		detail = fmt.Sprintf(". Provider error: %v", err)
+	}
 	switch {
 	case errors.Is(err, context.DeadlineExceeded):
-		return fmt.Sprintf("%s timed out. Try again or increase search_timeout_seconds in the config file", name)
+		return fmt.Sprintf("%s timed out. Try again or run moji config and increase search_timeout_seconds%s", name, detail)
 	case errors.Is(err, context.Canceled):
-		return fmt.Sprintf("%s search was canceled. No download was started", name)
+		return fmt.Sprintf("%s search was canceled. No download was started%s", name, detail)
 	case errors.Is(err, ErrRateLimited):
-		return fmt.Sprintf("%s reached its search limit. Wait a moment, then try again", name)
+		return fmt.Sprintf("%s reached its search limit. Wait a moment, then try again%s", name, detail)
 	case errors.Is(err, ErrBlocked):
-		return fmt.Sprintf("%s blocked the search request. Try another enabled provider", name)
+		return fmt.Sprintf("%s blocked the search request. Try another enabled provider or %s%s", name, providerConfigurationFix(name), detail)
 	case errors.Is(err, ErrUnavailable):
-		return fmt.Sprintf("Moji couldn't connect to %s. Check your connection, then try again", name)
+		return fmt.Sprintf("Moji couldn't use %s. Check your connection, then %s%s", name, providerConfigurationFix(name), detail)
 	case errors.Is(err, ErrNonRetryable):
-		return fmt.Sprintf("%s rejected the search request. Check the query or provider configuration", name)
+		return fmt.Sprintf("%s rejected the search request. %s%s", name, providerConfigurationFix(name), detail)
 	case errors.Is(err, ErrBadResponse):
-		return fmt.Sprintf("%s returned a response Moji couldn't use. Try again later or use another provider", name)
+		return fmt.Sprintf("%s returned a response Moji couldn't use. Try again later, use another provider, or %s%s", name, providerConfigurationFix(name), detail)
 	case err != nil:
-		return fmt.Sprintf("%s search failed: %v", name, err)
+		return fmt.Sprintf("%s search failed. %s%s", name, providerConfigurationFix(name), detail)
 	default:
-		return fmt.Sprintf("%s search failed. Try again or use another provider", name)
+		return fmt.Sprintf("%s search failed. Try again, use another provider, or %s", name, providerConfigurationFix(name))
+	}
+}
+
+func providerConfigurationFix(name string) string {
+	switch name {
+	case "github":
+		return "run gh auth status/gh auth login, set GITHUB_TOKEN, or run moji config and check providers.github"
+	case "websearch":
+		return "run kagi auth, or run moji config and check providers.websearch.instance"
+	case "plugins":
+		return "run moji config and check source_plugins"
+	default:
+		return fmt.Sprintf("run moji config and check providers.%s", name)
 	}
 }
 

@@ -68,9 +68,9 @@ func NewConfigModel(current config.Config, path string, color bool) ConfigModel 
 	}
 	model := ConfigModel{path: path, current: current, fields: fields}
 	if color {
-		model.brand = lipgloss.NewStyle().Foreground(lipgloss.Color("#FF8C00")).Bold(true)
-		model.accent = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFA500"))
-		model.faint = lipgloss.NewStyle().Foreground(lipgloss.Color("#777777"))
+		model.brand = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFD75F")).Bold(true)
+		model.accent = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFF87"))
+		model.faint = lipgloss.NewStyle().Faint(true)
 		model.warning = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFD75F"))
 	}
 	return model
@@ -214,7 +214,7 @@ func (model ConfigModel) config() (config.Config, error) {
 }
 
 func configurableProviderNames() []string {
-	return []string{"github", "getfonts", "fontsquirrel", "fontshare", "registry", "plugins", "websearch"}
+	return []string{"github", "getfonts", "dafont", "fontsquirrel", "fontshare", "registry", "plugins", "websearch"}
 }
 
 func providerHasInstance(name string) bool {

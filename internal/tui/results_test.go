@@ -808,6 +808,63 @@ func TestResultsLoadingAndProviderAttentionStayConcise(t *testing.T) {
 	}
 }
 
+func TestEmptyLiveResultsShowSearchingUntilEventStreamCloses(t *testing.T) {
+	t.Parallel()
+	events := make(chan provider.Event)
+	model := sizedModel(t, NewLiveModel(events, nil, false, "Peanuts", "", rank.DefaultWeights(), 10), 80, 16)
+	view := model.View()
+	if !strings.Contains(view, "Searching for matching fonts") || strings.Contains(view, "No matching results") {
+		t.Fatalf("loading view showed a settled empty state:\n%s", view)
+	}
+	compact := sizedModel(t, model, 24, 7).View()
+	if !strings.Contains(compact, "Searching") || strings.Contains(compact, "No matching results") {
+		t.Fatalf("compact loading view hid the search state:\n%s", compact)
+	}
+
+	close(events)
+	updated, _ := model.Update(model.Init()())
+	model = updated.(Model)
+	view = model.View()
+	if model.loading || !strings.Contains(view, "No matching results") || strings.Contains(view, "Searching for matching fonts") {
+		t.Fatalf("settled view did not show the empty state:\n%s", view)
+	}
+}
+
+func TestColorThemeUsesFaintANSIInsteadOfGrayForeground(t *testing.T) {
+	t.Parallel()
+	model := NewModel(nil, nil, true)
+	if !model.faint.GetFaint() || !model.secondary.GetFaint() {
+		t.Fatalf("color theme did not configure ANSI faint styles")
+	}
+	_, faintHasNoColor := model.faint.GetForeground().(lipgloss.NoColor)
+	_, secondaryHasNoColor := model.secondary.GetForeground().(lipgloss.NoColor)
+	if !faintHasNoColor || !secondaryHasNoColor {
+		t.Fatalf("faint text still forces a foreground gray")
+	}
+	plain := NewModel(nil, nil, false).View()
+	if strings.Contains(plain, "\x1b[") {
+		t.Fatalf("non-color view contains ANSI escapes: %q", plain)
+	}
+}
+
+func TestProviderHealthWrapsActionAndActualError(t *testing.T) {
+	t.Parallel()
+	model := sizedModel(t, NewModel(nil, nil, false), 60, 18)
+	err := fmt.Errorf("%w: github returned HTTP 401", provider.ErrNonRetryable)
+	model.providerStatus["github"] = eventStatus(provider.Event{
+		Provider: "github", Type: provider.EventStatus, Status: provider.StateFailed, Err: err,
+	})
+	model.providerStates["github"] = provider.StateFailed
+	model.screen = screenHealth
+	view := model.View()
+	continuous := strings.Join(strings.Fields(view), " ")
+	for _, wanted := range []string{"gh auth login", "providers.github", "github returned HTTP 401"} {
+		if !strings.Contains(continuous, wanted) {
+			t.Fatalf("provider health hid %q:\n%s", wanted, view)
+		}
+	}
+}
+
 func TestProviderDisplayNeverIncludesOrigin(t *testing.T) {
 	model := NewModel([]provider.Result{
 		{Filename: "Example-Regular.otf", Format: "otf", Source: "github.com/owner/private-fonts", Provider: "github"},

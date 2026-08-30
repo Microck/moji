@@ -35,6 +35,17 @@ pnpm add -g @microck/moji
 bun add -g @microck/moji
 ```
 
+or install the same released native binary from this repository's Homebrew
+formula:
+
+```bash
+brew tap microck/moji https://github.com/Microck/moji
+brew install microck/moji/moji
+```
+
+The explicit tap URL is required because this source repository is not named
+`homebrew-moji`. Upgrade later with `brew upgrade microck/moji/moji`.
+
 search for a family:
 
 ```bash
@@ -86,10 +97,12 @@ or another script without relying on its filename.
 
 ## providers
 
-the default GetFonts, Fontshare, and registry providers work without an
-account. Font Squirrel is available through `--provider fontsquirrel`, but is
-off by default because its site protection can block API clients. Both catalog
-providers inspect official download archives for the formats you requested. GitHub's
+the default GetFonts, DaFont, Fontshare, and registry providers work without an
+account. DaFont search results are parsed from its public catalog and direct ZIP
+downloads pass through Moji's normal archive safety limits. Font Squirrel is
+available through `--provider fontsquirrel`, but is off by default because its
+site protection can block API clients. All catalog providers inspect source
+download archives for the formats you requested. GitHub's
 repository, tree, and release search also uses its small unauthenticated
 allowance. Moji automatically uses an existing authenticated `gh` session when
 GitHub CLI is installed. `GITHUB_TOKEN` and `github_token` take precedence and
@@ -163,6 +176,8 @@ providers:
   github:
     enabled: true
   getfonts:
+    enabled: true
+  dafont:
     enabled: true
   fontsquirrel:
     enabled: false

@@ -36,6 +36,9 @@ rate_limits:
   getfonts:
     timeout_seconds: 15
     retries: 1
+  dafont:
+    timeout_seconds: 15
+    retries: 1
   fontsquirrel:
     timeout_seconds: 15
     retries: 1
@@ -56,6 +59,8 @@ providers:
   github:
     enabled: true
   getfonts:
+    enabled: true
+  dafont:
     enabled: true
   fontsquirrel:
     enabled: false

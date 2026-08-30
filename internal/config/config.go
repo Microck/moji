@@ -44,6 +44,7 @@ func Default() Config {
 		RateLimits: map[string]RateLimitConfig{
 			"github":       {TimeoutSeconds: 15, Retries: 2},
 			"getfonts":     {TimeoutSeconds: 15, Retries: 1},
+			"dafont":       {TimeoutSeconds: 15, Retries: 1},
 			"fontsquirrel": {TimeoutSeconds: 15, Retries: 1},
 			"fontshare":    {TimeoutSeconds: 15, Retries: 1},
 			"registry":     {TimeoutSeconds: 15, Retries: 1},
@@ -51,7 +52,7 @@ func Default() Config {
 			"websearch":    {TimeoutSeconds: 20, Retries: 0},
 		},
 		Providers: map[string]ProviderConfig{
-			"github": {Enabled: true}, "getfonts": {Enabled: true}, "fontsquirrel": {Enabled: false},
+			"github": {Enabled: true}, "getfonts": {Enabled: true}, "dafont": {Enabled: true}, "fontsquirrel": {Enabled: false},
 			"fontshare": {Enabled: true}, "registry": {Enabled: true}, "plugins": {Enabled: true},
 			"websearch": {Enabled: true},
 		},
