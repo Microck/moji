@@ -14,6 +14,21 @@ description: Availability, authentication, trust, and fallback behavior.
 
 GetFonts is the zero-configuration default.
 
+## DaFont
+
+- Name: `dafont`
+- Default: enabled
+- Authentication: none
+- Endpoint: DaFont's public search catalog and direct ZIP downloads
+- Result trust: untrusted download bytes
+- License: `unknown`; check the author and license information before use
+
+Moji parses bounded catalog results, chooses at most three closest family
+matches, and sends the direct ZIP downloads through the same archive path,
+entry-count, expanded-size, format, and HTTPS checks as other providers. This
+also covers names that do not exist in the structured registries, such as a
+`Peanuts` search matching the Peanuts Gang family.
+
 ## Font Squirrel
 
 - Name: `fontsquirrel`

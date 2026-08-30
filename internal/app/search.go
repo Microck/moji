@@ -104,6 +104,7 @@ func (application App) searchEvents(ctx context.Context, current config.Config, 
 	invalidURLs, _ := store.InvalidURLs()
 	available := map[string]provider.Provider{
 		"getfonts":     provider.GetFonts{Client: application.Client, Endpoint: current.Providers["getfonts"].Instance},
+		"dafont":       provider.DaFont{Client: application.Client, Endpoint: current.Providers["dafont"].Instance},
 		"fontsquirrel": provider.FontSquirrel{Client: application.Client, Endpoint: current.Providers["fontsquirrel"].Instance},
 		"fontshare":    provider.Fontshare{Client: application.Client, Endpoint: current.Providers["fontshare"].Instance},
 		"registry": provider.RegistrySearch{
@@ -244,8 +245,8 @@ func validateProviderNames(value string) error {
 	}
 	for _, raw := range strings.Split(value, ",") {
 		name := strings.TrimSpace(strings.ToLower(raw))
-		if name != "github" && name != "getfonts" && name != "fontsquirrel" && name != "fontshare" && name != "registry" && name != "plugins" && name != "websearch" {
-			return fmt.Errorf("unknown provider %q (choose github, getfonts, fontsquirrel, fontshare, registry, plugins, or websearch)", name)
+		if name != "github" && name != "getfonts" && name != "dafont" && name != "fontsquirrel" && name != "fontshare" && name != "registry" && name != "plugins" && name != "websearch" {
+			return fmt.Errorf("unknown provider %q (choose github, getfonts, dafont, fontsquirrel, fontshare, registry, plugins, or websearch)", name)
 		}
 	}
 	return nil

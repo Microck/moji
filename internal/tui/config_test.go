@@ -7,8 +7,20 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/microck/moji/internal/config"
 )
+
+func TestConfigColorThemeUsesFaintANSIStyleWithoutGray(t *testing.T) {
+	t.Parallel()
+	model := NewConfigModel(config.Default(), "/tmp/config.yaml", true)
+	if !model.faint.GetFaint() {
+		t.Fatal("configuration theme did not configure ANSI faint text")
+	}
+	if _, ok := model.faint.GetForeground().(lipgloss.NoColor); !ok {
+		t.Fatal("configuration faint text still forces a foreground gray")
+	}
+}
 
 func TestConfigModelEditsTogglesAndSaves(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")

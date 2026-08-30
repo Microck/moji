@@ -88,22 +88,25 @@ func NewModel(results []provider.Result, downloader DownloadFunc, color bool) Mo
 		selection:     lipgloss.NewStyle().Reverse(true),
 	}
 	if color {
-		model.brand = lipgloss.NewStyle().Foreground(lipgloss.Color("#FF8C00")).Bold(true)
-		model.accent = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFA500"))
-		model.faint = lipgloss.NewStyle().Foreground(lipgloss.Color("#858585"))
-		model.secondary = lipgloss.NewStyle().Foreground(lipgloss.Color("#B0B0B0"))
+		model.brand = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFD75F")).Bold(true)
+		model.accent = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFF87"))
+		model.faint = lipgloss.NewStyle().Faint(true)
+		model.secondary = lipgloss.NewStyle().Faint(true)
 		model.warning = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFD75F")).Bold(true)
-		model.success = lipgloss.NewStyle().Foreground(lipgloss.Color("#5FAF5F"))
-		model.danger = lipgloss.NewStyle().Foreground(lipgloss.Color("#D75F5F"))
+		model.success = lipgloss.NewStyle().Foreground(lipgloss.Color("#87FFAF"))
+		model.danger = lipgloss.NewStyle().Foreground(lipgloss.Color("#FF87AF"))
 		model.selection = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#FFA500")).
+			Foreground(lipgloss.Color("#FFFF87")).
 			Bold(true)
 		model.providerStyles = map[string]lipgloss.Style{
-			"github":    lipgloss.NewStyle().Foreground(lipgloss.Color("#AF87D7")),
-			"getfonts":  lipgloss.NewStyle().Foreground(lipgloss.Color("#5FAFD7")),
-			"registry":  lipgloss.NewStyle().Foreground(lipgloss.Color("#5FAF87")),
-			"websearch": lipgloss.NewStyle().Foreground(lipgloss.Color("#D7AF5F")),
-			"plugins":   lipgloss.NewStyle().Foreground(lipgloss.Color("#D787AF")),
+			"github":       lipgloss.NewStyle().Foreground(lipgloss.Color("#D7AFFF")),
+			"getfonts":     lipgloss.NewStyle().Foreground(lipgloss.Color("#87D7FF")),
+			"dafont":       lipgloss.NewStyle().Foreground(lipgloss.Color("#FFAF87")),
+			"fontsquirrel": lipgloss.NewStyle().Foreground(lipgloss.Color("#AFFFD7")),
+			"fontshare":    lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFAF")),
+			"registry":     lipgloss.NewStyle().Foreground(lipgloss.Color("#87FFD7")),
+			"websearch":    lipgloss.NewStyle().Foreground(lipgloss.Color("#FFD787")),
+			"plugins":      lipgloss.NewStyle().Foreground(lipgloss.Color("#FFAFFF")),
 		}
 	}
 	model.refresh()
@@ -201,6 +204,12 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 				return model, tea.Quit
 			case "tab", "esc", "H":
 				model.screen = screenResults
+				model.detailOffset = 0
+			case "up", "k":
+				model.detailOffset = max(0, model.detailOffset-1)
+			case "down", "j":
+				maximum := max(0, len(model.healthLines())-model.bodyHeight())
+				model.detailOffset = min(maximum, model.detailOffset+1)
 			case "r":
 				if model.search == nil || strings.TrimSpace(model.query) == "" {
 					model.status = "Re-check is available after a search started from the home screen."
@@ -215,6 +224,7 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 				model.loading = true
 				model.providerStatus = make(map[string]string)
 				model.providerStates = make(map[string]provider.State)
+				model.detailOffset = 0
 				return model, model.waitForEvent()
 			}
 			return model, nil
@@ -297,8 +307,10 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "H":
 			model.screen = screenHealth
+			model.detailOffset = 0
 		case "tab":
 			model.screen = screenHealth
+			model.detailOffset = 0
 		case "/":
 			model.filtering = true
 		case "f":
@@ -388,7 +400,23 @@ func (model Model) resultsBody() string {
 		remaining--
 	}
 	if len(model.groups) == 0 {
-		lines = append(lines, "", "  No matching results.")
+		message := "  No matching results."
+		if model.loading {
+			message = model.warning.Render("  Searching for matching fonts...")
+		}
+		contentLimit := model.bodyHeight()
+		if model.status != "" {
+			contentLimit--
+		}
+		if len(lines) >= contentLimit {
+			lines = lines[:max(0, contentLimit-1)]
+		}
+		if len(lines)+1 < contentLimit {
+			lines = append(lines, "")
+		}
+		if contentLimit > 0 {
+			lines = append(lines, message)
+		}
 	} else if remaining > 0 {
 		lines = append(lines, model.resultWindow(remaining)...)
 	}
@@ -502,7 +530,7 @@ func (model Model) providerAttention() string {
 	if count == 1 {
 		noun = "provider needs"
 	}
-	return fmt.Sprintf("%d %s attention - open Health", count, noun)
+	return fmt.Sprintf("%d %s attention - press H for the error and fix", count, noun)
 }
 
 func (model Model) renderBrand() string {
@@ -1225,28 +1253,61 @@ func (model Model) licenseBadge(license string) string {
 }
 
 func (model Model) healthBody() string {
+	lines := model.healthLines()
+	maximum := max(0, len(lines)-model.bodyHeight())
+	offset := min(model.detailOffset, maximum)
+	end := min(len(lines), offset+model.bodyHeight())
+	return strings.Join(lines[offset:end], "\n")
+}
+
+func (model Model) healthLines() []string {
 	if len(model.providerStatus) == 0 {
-		return "\n  No provider activity yet. Start a search to collect health information."
+		return []string{"", "  No provider activity yet. Start a search to collect health information."}
 	}
 	names := make([]string, 0, len(model.providerStatus))
 	for name := range model.providerStatus {
 		names = append(names, name)
 	}
 	sort.Strings(names)
-	lines := make([]string, 0, len(names)+2)
-	lines = append(lines, model.faint.Render("  Provider        Latest state"), "")
+	lines := make([]string, 0, len(names)*2+2)
+	if model.contentWidth() >= 34 {
+		lines = append(lines, model.faint.Render("  Provider        Latest state"), "")
+	}
 	for _, name := range names {
 		state := model.providerStatus[name]
-		dot := model.healthDot(state)
-		lines = append(lines, truncate(fmt.Sprintf("  %s  %-14s %s", dot, name, state), model.contentWidth()))
+		dot := model.healthDot(name, state)
+		if model.contentWidth() < 34 {
+			lines = append(lines, truncate(fmt.Sprintf("  %s  %s", dot, name), model.contentWidth()))
+			for _, line := range wrapCells(state, max(1, model.contentWidth()-4)) {
+				lines = append(lines, "    "+line)
+			}
+			continue
+		}
+		prefix := fmt.Sprintf("  %s  %-14s ", dot, name)
+		wrapped := wrapCells(state, max(1, model.contentWidth()-lipgloss.Width(prefix)))
+		lines = append(lines, prefix+wrapped[0])
+		continuation := strings.Repeat(" ", lipgloss.Width(prefix))
+		for _, line := range wrapped[1:] {
+			lines = append(lines, continuation+line)
+		}
 	}
 	if model.status != "" {
 		lines = append(lines, "", model.warning.Render(truncate(model.status, model.contentWidth())))
 	}
-	return strings.Join(lines, "\n")
+	return lines
 }
 
-func (model Model) healthDot(state string) string {
+func (model Model) healthDot(name, state string) string {
+	if current, ok := model.providerStates[name]; ok {
+		switch current {
+		case provider.StateDone:
+			return model.success.Render("●")
+		case provider.StateFailed:
+			return model.danger.Render("●")
+		case provider.StateSearching, provider.StateThrottled:
+			return model.warning.Render("●")
+		}
+	}
 	switch {
 	case strings.HasPrefix(state, "done"):
 		return model.success.Render("●")
@@ -1261,12 +1322,12 @@ func (model Model) healthDot(state string) string {
 
 func (model Model) healthHelp() string {
 	if model.contentWidth() < 34 {
-		return model.faint.Render("r check  tab back  q")
+		return model.faint.Render("j/k  r check  tab back")
 	}
 	if model.contentWidth() < 48 {
-		return model.faint.Render("r check  tab/esc back  q quit")
+		return model.faint.Render("j/k scroll  r check  tab back  q")
 	}
-	return model.faint.Render("r: re-check  tab/esc: results  q: quit")
+	return model.faint.Render("j/k: scroll  r: re-check  tab/esc: results  q: quit")
 }
 
 func (model Model) sortName() string {

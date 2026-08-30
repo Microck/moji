@@ -59,7 +59,10 @@ func TestDefaultConfiguresArchiveCatalogProviders(t *testing.T) {
 	if !current.Providers["fontshare"].Enabled {
 		t.Fatal("Fontshare is not enabled")
 	}
-	for _, name := range []string{"fontsquirrel", "fontshare"} {
+	if !current.Providers["dafont"].Enabled {
+		t.Fatal("DaFont is not enabled")
+	}
+	for _, name := range []string{"dafont", "fontsquirrel", "fontshare"} {
 		if current.RateLimits[name].TimeoutSeconds <= 0 {
 			t.Fatalf("provider %q has no timeout policy", name)
 		}

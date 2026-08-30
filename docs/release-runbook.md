@@ -39,6 +39,31 @@ After verification passes, the command publishes the exact verified tarball,
 creates and pushes an annotated `v<version>` tag, then creates the matching
 latest GitHub release with generated notes and the tarball attached.
 
+## Update the Homebrew formula
+
+`Formula/moji.rb` is the repository-owned tap formula. It deliberately installs
+the native binary from the same immutable npm archive verified by the release
+command instead of introducing another binary build or upload path.
+
+After `npm run release:publish` has published the new version, download that
+archive, calculate its SHA-256 checksum, and update the formula's `url` and
+`sha256`. Then verify the formula on Homebrew before committing the formula
+update:
+
+```console
+VERSION="$(node -p "JSON.parse(require('fs').readFileSync('package.json', 'utf8')).version")"
+curl -fsSLo moji.tgz https://registry.npmjs.org/@microck/moji/-/moji-$VERSION.tgz
+shasum -a 256 moji.tgz
+brew install --build-from-source ./Formula/moji.rb
+brew test ./Formula/moji.rb
+```
+
+The formula lives in this repository, so users first run
+`brew tap microck/moji https://github.com/Microck/moji` and then install it as
+`microck/moji/moji`. The explicit URL is required because this repository is
+not named `homebrew-moji`; no external tap repository or Homebrew/core change
+is required.
+
 The publish path is resumable. If npm publication succeeded but a later tag or
 GitHub operation failed, rerun `npm run release:publish`. Moji compares npm's
 published integrity with the newly verified archive, refuses any mismatch, and

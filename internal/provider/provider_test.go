@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -27,6 +28,25 @@ func TestDescribeFailureProvidesRecovery(t *testing.T) {
 	}
 	if message := DescribeFailure("fixture", errors.New("specific cause")); !strings.Contains(message, "specific cause") {
 		t.Fatalf("specific failure lost its cause: %q", message)
+	}
+}
+
+func TestDescribeFailurePreservesProviderErrorAndNamesConfigurationFix(t *testing.T) {
+	t.Parallel()
+	err := fmt.Errorf("%w: github returned HTTP 401", ErrNonRetryable)
+	message := DescribeFailure("github", err)
+	for _, wanted := range []string{"gh auth login", "GITHUB_TOKEN", "providers.github", err.Error()} {
+		if !strings.Contains(message, wanted) {
+			t.Fatalf("failure guidance %q does not contain %q", message, wanted)
+		}
+	}
+
+	webError := fmt.Errorf("%w: kagi search: authentication required", ErrUnavailable)
+	webMessage := DescribeFailure("websearch", webError)
+	for _, wanted := range []string{"kagi auth", "providers.websearch.instance", webError.Error()} {
+		if !strings.Contains(webMessage, wanted) {
+			t.Fatalf("web failure guidance %q does not contain %q", webMessage, wanted)
+		}
 	}
 }
 
