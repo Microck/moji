@@ -82,3 +82,14 @@ func TestParseDaFontCatalogKeepsHighlightedFamilyNameAndSlug(t *testing.T) {
 		t.Fatalf("cache namespace = %q", (DaFont{}).CacheNamespace())
 	}
 }
+
+func TestDaFontCacheQueryPreservesAdaptiveSpellings(t *testing.T) {
+	t.Parallel()
+	source := DaFont{}
+	if source.CacheQuery("ProximaNova") == source.CacheQuery("Proxima Nova") {
+		t.Fatal("adaptive spellings must use distinct DaFont cache keys")
+	}
+	if source.CacheQuery("  Proxima   Nova ") != source.CacheQuery("proxima nova") {
+		t.Fatal("cache keys should normalize case and repeated whitespace")
+	}
+}

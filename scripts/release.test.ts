@@ -119,6 +119,8 @@ test('Homebrew formula consumes the canonical npm native-binary archive', async 
 	assert.match(formula, /url "https:\/\/registry\.npmjs\.org\/@microck\/moji\/-\/moji-[0-9.]+\.tgz"/);
 	assert.match(formula, /sha256 "[0-9a-f]{64}"/);
 	assert.match(formula, /platform = OS\.mac\? \? "darwin" : "linux"/);
-	assert.match(formula, /architecture = Hardware::CPU\.arm\? \? "arm64" : "x64"/);
+	assert.match(formula, /Hardware::CPU\.arm64\?/);
+	assert.match(formula, /Hardware::CPU\.intel\?/);
+	assert.match(formula, /Unsupported CPU architecture/);
 	assert.match(formula, /package\/binaries\/\#\{platform\}-\#\{architecture\}\/moji/);
 });

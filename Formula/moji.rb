@@ -7,7 +7,13 @@ class Moji < Formula
 
   def install
     platform = OS.mac? ? "darwin" : "linux"
-    architecture = Hardware::CPU.arm? ? "arm64" : "x64"
+    architecture = if Hardware::CPU.arm64?
+      "arm64"
+    elsif Hardware::CPU.intel?
+      "x64"
+    else
+      odie "Unsupported CPU architecture: #{Hardware::CPU.arch}"
+    end
     bin.install "package/binaries/#{platform}-#{architecture}/moji"
   end
 

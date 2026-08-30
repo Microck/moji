@@ -104,7 +104,7 @@ func (application App) searchEvents(ctx context.Context, current config.Config, 
 	invalidURLs, _ := store.InvalidURLs()
 	available := map[string]provider.Provider{
 		"getfonts":     provider.GetFonts{Client: application.Client, Endpoint: current.Providers["getfonts"].Instance},
-		"dafont":       provider.DaFont{Client: application.Client},
+		"dafont":       provider.DaFont{Client: application.Client, Endpoint: current.Providers["dafont"].Instance},
 		"fontsquirrel": provider.FontSquirrel{Client: application.Client, Endpoint: current.Providers["fontsquirrel"].Instance},
 		"fontshare":    provider.Fontshare{Client: application.Client, Endpoint: current.Providers["fontshare"].Instance},
 		"registry": provider.RegistrySearch{

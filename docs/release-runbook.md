@@ -51,10 +51,10 @@ archive, calculate its SHA-256 checksum, and update the formula's `url` and
 update:
 
 ```console
-VERSION=0.8.0
+VERSION="$(node -p "JSON.parse(require('fs').readFileSync('package.json', 'utf8')).version")"
 curl -fsSLo moji.tgz https://registry.npmjs.org/@microck/moji/-/moji-$VERSION.tgz
 shasum -a 256 moji.tgz
-brew reinstall --build-from-source ./Formula/moji.rb
+brew install --build-from-source ./Formula/moji.rb
 brew test ./Formula/moji.rb
 ```
 

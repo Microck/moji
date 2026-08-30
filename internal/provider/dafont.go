@@ -40,7 +40,9 @@ func (source DaFont) CacheNamespace() string {
 	return source.Name() + "\x00" + source.baseURL()
 }
 
-func (DaFont) CacheQuery(query string) string { return archiveCatalogKey(query) }
+func (DaFont) CacheQuery(query string) string {
+	return strings.ToLower(strings.Join(strings.Fields(query), " "))
+}
 
 func (source DaFont) Search(ctx context.Context, query string, formats []string, out chan<- Event) error {
 	client := source.Client
