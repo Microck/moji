@@ -224,6 +224,7 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 				model.loading = true
 				model.providerStatus = make(map[string]string)
 				model.providerStates = make(map[string]provider.State)
+				model.detailOffset = 0
 				return model, model.waitForEvent()
 			}
 			return model, nil

@@ -943,6 +943,42 @@ func TestProviderHealthScreenUsesStreamedStatuses(t *testing.T) {
 	}
 }
 
+func TestHealthRecheckResetsScrollOffset(t *testing.T) {
+	t.Parallel()
+	initial := make(chan provider.Event)
+	model := NewLiveModel(initial, nil, false, "Peanuts", "", rank.DefaultWeights(), 10)
+	model.screen = screenHealth
+	model.providerStatus = map[string]string{
+		"dafont":    "done (1 results)",
+		"fontshare": "done (1 results)",
+		"getfonts":  "done (1 results)",
+	}
+	model.providerStates = map[string]provider.State{
+		"dafont":    provider.StateDone,
+		"fontshare": provider.StateDone,
+		"getfonts":  provider.StateDone,
+	}
+	model = sizedModel(t, model, 40, 8)
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	model = updated.(Model)
+	if model.detailOffset == 0 {
+		t.Fatal("health scroll did not move before re-check")
+	}
+	refreshed := make(chan provider.Event, 1)
+	refreshed <- provider.Event{Provider: "dafont", Type: provider.EventStatus, Status: provider.StateSearching}
+	model.search = func(string) (<-chan provider.Event, error) { return refreshed, nil }
+	updated, command := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
+	model = updated.(Model)
+	if model.detailOffset != 0 || !model.loading || command == nil {
+		t.Fatalf("re-check did not reset Health state: offset=%d loading=%v", model.detailOffset, model.loading)
+	}
+	updated, _ = model.Update(command())
+	model = updated.(Model)
+	if !strings.Contains(model.View(), "dafont") {
+		t.Fatalf("re-check hid the first provider status:\\n%s", model.View())
+	}
+}
+
 func TestResultsReserveAVisibleRowForStatus(t *testing.T) {
 	results := make([]provider.Result, 20)
 	for index := range results {

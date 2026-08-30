@@ -122,5 +122,6 @@ test('Homebrew formula consumes the canonical npm native-binary archive', async 
 	assert.match(formula, /Hardware::CPU\.arm64\?/);
 	assert.match(formula, /Hardware::CPU\.intel\?/);
 	assert.match(formula, /Unsupported CPU architecture/);
-	assert.match(formula, /package\/binaries\/\#\{platform\}-\#\{architecture\}\/moji/);
+	assert.match(formula, /bin\.install "binaries\/\#\{platform\}-\#\{architecture\}\/moji"/);
+  assert.doesNotMatch(formula, /package\/binaries/);
 });

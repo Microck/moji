@@ -14,7 +14,7 @@ class Moji < Formula
     else
       odie "Unsupported CPU architecture: #{Hardware::CPU.arch}"
     end
-    bin.install "package/binaries/#{platform}-#{architecture}/moji"
+    bin.install "binaries/#{platform}-#{architecture}/moji"
   end
 
   test do
