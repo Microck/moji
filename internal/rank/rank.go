@@ -178,9 +178,22 @@ func AdaptiveQueries(query string) []string {
 func Results(results []provider.Result, query, wantedWeight string, weights Weights) []provider.Result {
 	normalizedQuery := strings.ToLower(NormalizeQuery(query))
 	compactQuery := strings.ReplaceAll(normalizedQuery, " ", "")
+	// Relevance depends only on these two identity fields for this query.
+	// Sorting compares each result repeatedly, so parse each identity once.
+	type identity struct{ filename, name string }
+	relevanceByIdentity := make(map[identity]int, len(results))
+	cachedRelevance := func(result provider.Result) int {
+		key := identity{result.Filename, result.Name}
+		if score, ok := relevanceByIdentity[key]; ok {
+			return score
+		}
+		score := relevance(result, normalizedQuery, compactQuery)
+		relevanceByIdentity[key] = score
+		return score
+	}
 	ranked := make([]provider.Result, 0, len(results))
 	for _, result := range results {
-		if compactQuery == "" || relevance(result, normalizedQuery, compactQuery) > 0 {
+		if compactQuery == "" || cachedRelevance(result) > 0 {
 			ranked = append(ranked, result)
 		}
 	}
@@ -224,8 +237,8 @@ func Results(results []provider.Result, query, wantedWeight string, weights Weig
 		ranked[i].Score = score
 	}
 	sort.Slice(ranked, func(i, j int) bool {
-		leftRelevance := relevance(ranked[i], normalizedQuery, compactQuery)
-		rightRelevance := relevance(ranked[j], normalizedQuery, compactQuery)
+		leftRelevance := cachedRelevance(ranked[i])
+		rightRelevance := cachedRelevance(ranked[j])
 		if leftRelevance != rightRelevance {
 			return leftRelevance > rightRelevance
 		}

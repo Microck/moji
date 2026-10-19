@@ -1,0 +1,1 @@
+{"name":"moji-browser-verification","private":true,"type":"module","engines":{"node":">=24.8.0"},"scripts":{"test":"node run.mjs"},"devDependencies":{"@e2e-dev/web":"0.15.2","e2e":"0.21.2","yaml":"2.9.1"}}

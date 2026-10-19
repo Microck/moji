@@ -544,7 +544,7 @@ func TestGitHubRetryAfter(t *testing.T) {
 		want   time.Duration
 	}{
 		{"seconds", http.Header{"Retry-After": {"7"}}, 7 * time.Second},
-		{"date", http.Header{"Retry-After": {now.Add(9 * time.Second).Format(http.TimeFormat)}}, 9 * time.Second},
+		{"date", http.Header{"Retry-After": {now.Add(9 * time.Second).UTC().Format(http.TimeFormat)}}, 9 * time.Second},
 		{"reset", http.Header{"X-Ratelimit-Reset": {fmt.Sprint(now.Add(11 * time.Second).Unix())}}, 11 * time.Second},
 		{"retry after wins", http.Header{"Retry-After": {"7"}, "X-Ratelimit-Reset": {fmt.Sprint(now.Add(11 * time.Second).Unix())}}, 7 * time.Second},
 	}
