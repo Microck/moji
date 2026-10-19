@@ -21,6 +21,7 @@ for(const page of pages())test(`rendered documentation ${page.route}`,async({app
  const markdown=await browser.evaluate(async path=>{const response=await fetch('/llms.mdx'+path+'/content.md');return {status:response.status,text:await response.text()};},page.route.replace(/\/$/,''));
  expect(markdown.status).toBe(200);
  expect(markdown.text.length).toBeGreaterThan(20);
+ expect(markdown.text.startsWith(`# ${page.title} (${page.route.replace(/\/$/,'')})\n`)).toBe(true);
 });
 test('mobile docs navigation and readable content',async({app,browser,screen})=>{
  await browser.setViewport({width:390,height:844});
