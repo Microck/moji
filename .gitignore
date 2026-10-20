@@ -8,3 +8,9 @@
 /docs/next-env.d.ts
 /docs/tsconfig.tsbuildinfo
 /*.tgz
+
+# Deterministic browser traces
+tests/browser/.e2e/
+
+# Isolated browser-tool dependencies
+tests/browser/node_modules/

@@ -236,3 +236,33 @@ FontTools interoperability check in both directions.
 ## license
 
 [MIT](LICENSE)
+
+## Deterministic browser verification
+
+The documentation UI is tested with pinned `tester-army/e2e` packages in an
+isolated private tooling package; the published CLI's Node >=18 requirement is
+unchanged. With Node >=24.8 for browser tooling:
+
+```sh
+npm ci
+npm ci --prefix tests/browser
+npm run docs:check
+npm run docs:build
+cd tests/browser
+npx --no-install e2e-web install chromium --with-deps
+npm test
+```
+
+The suite opens all documentation pages, retrieves their Markdown endpoints,
+and checks mobile layout. It makes no model calls and uses no font-provider
+credentials. Native `go test ./cmd/... ./internal/... ./e2e/...` additionally
+runs the compiled CLI, real loopback font-download fixtures, conversion and PTY
+flows. Live third-party provider availability is a separate acceptance surface.
+
+Ranking now memoizes query relevance by filename/name within each call. The
+frozen-reference regression compares every result, score and ordering across
+24 query/weight combinations and checks that caller input stays unchanged.
+On a synthetic 600-row fixture, three-run median time was 13.51 ms before versus
+1.66 ms after; allocations fell from about 67,666 to 7,263 per operation. This
+is a focused ranking benchmark, not an end-to-end search/network speed claim.
+Reproduce with `go test ./internal/rank -bench BenchmarkRanking -benchmem`.
