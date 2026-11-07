@@ -428,3 +428,55 @@ func TestInstallShowsAnimatedProgress(t *testing.T) {
 		t.Fatalf("install result missing:\n%s", model.View())
 	}
 }
+
+func TestDownloadResultsEscapeUntrustedText(t *testing.T) {
+	t.Parallel()
+	// These standalone control/format characters are inert fixture text,
+	// not terminal commands. Keep the original file identities unchanged.
+	name := "Example\t\r\x1b\x07\u202e.otf"
+	path := "/downloads/" + name
+	model := NewModel(nil, nil, false).WithInstaller(&Installer{
+		Dir:     "/fonts\tlocal",
+		Install: func([]string, bool, InstallProgressFunc) ([]string, error) { return nil, nil },
+	})
+	assertEscaped := func(text string) {
+		t.Helper()
+		if strings.ContainsAny(text, "\t\r\x1b\x07\u202e") {
+			t.Fatalf("unescaped control or format character: %q", text)
+		}
+	}
+
+	model = model.finishDownload(downloadMessage{paths: []string{path}, err: errors.New(name + ": download failed")})
+	assertEscaped(strings.Join(model.downloadResultLines(), "\n"))
+	assertEscaped(model.status)
+	if model.downloadPaths[0] != path {
+		t.Fatal("escaping changed the filesystem path")
+	}
+
+	model = model.finishDownload(downloadMessage{paths: []string{path}})
+	assertEscaped(strings.Join(model.downloadResultLines(), "\n"))
+	assertEscaped(model.status)
+	model = model.finishInstall(installMessage{err: fakeConflict{names: []string{name}}})
+	assertEscaped(strings.Join(model.downloadResultLines(), "\n"))
+	model, _ = press(model, "n")
+	assertEscaped(model.status)
+
+	model = model.finishInstall(installMessage{paths: []string{path}, err: errors.New(name + ": install failed")})
+	assertEscaped(strings.Join(model.downloadResultLines(), "\n"))
+	assertEscaped(model.status)
+	model = model.finishInstall(installMessage{paths: []string{path}})
+	assertEscaped(model.status)
+	if model.installPaths[0] != path {
+		t.Fatal("escaping changed the installed path")
+	}
+}
+
+func TestDisplayPathEscapesAfterHomeAbbreviation(t *testing.T) {
+	t.Setenv("HOME", "/home/example")
+	for _, path := range []string{"/home/example/Fonts\tname", "/elsewhere/Fonts\tname"} {
+		displayed := displayPath(path)
+		if strings.ContainsRune(displayed, '\t') || !strings.Contains(displayed, `\u0009`) {
+			t.Fatalf("displayPath(%q) = %q", path, displayed)
+		}
+	}
+}
