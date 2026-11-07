@@ -1378,6 +1378,8 @@ func displayFormat(result provider.Result) string {
 }
 
 func Run(input io.Reader, output io.Writer, model Model) error {
+	model, finishInstall := model.manageInstaller()
+	defer finishInstall()
 	_, err := tea.NewProgram(model, tea.WithInput(input), tea.WithOutput(output), tea.WithAltScreen()).Run()
 	return err
 }
