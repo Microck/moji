@@ -662,15 +662,16 @@ func displayPath(path string) string {
 // manageInstaller joins commands before Run returns, including when Bubble Tea
 // exits through a signal or an I/O error. The lock also rejects commands that
 // were queued but had not started when shutdown began.
-func (model Model) manageInstaller() (Model, func()) {
+func (model Model) manageInstaller() (Model, func() error) {
 	if model.installer == nil || model.installer.Install == nil {
-		return model, func() {}
+		return model, func() error { return nil }
 	}
 	installer := *model.installer
 	install := installer.Install
 	var mutex sync.Mutex
 	var active sync.WaitGroup
 	stopped := false
+	var installErr error
 	installer.Install = func(paths []string, overwrite bool, progress InstallProgressFunc) ([]string, error) {
 		mutex.Lock()
 		if stopped {
@@ -678,12 +679,17 @@ func (model Model) manageInstaller() (Model, func()) {
 			return nil, context.Canceled
 		}
 		active.Add(1)
+		installErr = nil
 		mutex.Unlock()
 		defer active.Done()
-		return install(paths, overwrite, progress)
+		paths, err := install(paths, overwrite, progress)
+		mutex.Lock()
+		installErr = err
+		mutex.Unlock()
+		return paths, err
 	}
 	model.installer = &installer
-	return model, func() {
+	return model, func() error {
 		mutex.Lock()
 		stopped = true
 		mutex.Unlock()
@@ -691,5 +697,31 @@ func (model Model) manageInstaller() (Model, func()) {
 			installer.Cancel()
 		}
 		active.Wait()
+		mutex.Lock()
+		defer mutex.Unlock()
+		if cancellationOnly(installErr) {
+			return nil
+		}
+		return installErr
 	}
+}
+
+// Keep cleanup failures joined with cancellation, while treating an ordinary
+// Ctrl+C (including a wrapped cancellation) as a clean interactive exit.
+func cancellationOnly(err error) bool {
+	if err == nil || err == context.Canceled {
+		return true
+	}
+	if joined, ok := err.(interface{ Unwrap() []error }); ok {
+		for _, child := range joined.Unwrap() {
+			if !cancellationOnly(child) {
+				return false
+			}
+		}
+		return len(joined.Unwrap()) > 0
+	}
+	if wrapped, ok := err.(interface{ Unwrap() error }); ok {
+		return wrapped.Unwrap() != nil && cancellationOnly(wrapped.Unwrap())
+	}
+	return false
 }
