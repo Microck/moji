@@ -164,10 +164,10 @@ func (model Model) finishDownload(message downloadMessage) Model {
 	model.detailOffset = 0
 	model.screen = screenDownloadResult
 	if message.err != nil {
-		model.status = "Download failed: " + message.err.Error()
+		model.status = "Download failed: " + escapeTerminalControls(message.err.Error())
 		return model
 	}
-	model.status = fmt.Sprintf("Downloaded %d file(s): %s", len(message.paths), strings.Join(message.paths, ", "))
+	model.status = fmt.Sprintf("Downloaded %d file(s): %s", len(message.paths), escapeTerminalControls(strings.Join(message.paths, ", ")))
 	if model.installer != nil && model.installer.Dir != "" && model.installer.Install != nil && len(model.pathsToInstall()) > 0 {
 		model.installState = installPrompt
 		model.promptChoice = 0
@@ -302,7 +302,7 @@ func (model Model) updateDownloadResult(message tea.KeyMsg) (tea.Model, tea.Cmd)
 			return model.startInstall(model.installState == installConflict)
 		}
 		if model.installState == installConflict {
-			model.status = "Install skipped: " + strings.Join(model.conflictNames, ", ") + " already installed"
+			model.status = "Install skipped: " + escapeTerminalControls(strings.Join(model.conflictNames, ", ")) + " already installed"
 		} else {
 			model.status += "  (not installed)"
 		}
@@ -347,7 +347,7 @@ func (model Model) finishInstall(message installMessage) Model {
 	model.installErr = message.err
 	model.detailOffset = 0
 	if message.err != nil {
-		model.status = "Install failed: " + message.err.Error()
+		model.status = "Install failed: " + escapeTerminalControls(message.err.Error())
 	} else {
 		model.status = fmt.Sprintf("Installed %d file(s) to %s", len(message.paths), displayPath(model.installer.Dir))
 	}
@@ -420,7 +420,9 @@ func (model Model) downloadResultLines() []string {
 	width := max(1, model.contentWidth()-4)
 	lines := []string{""}
 	addWrapped := func(text string, render func(...string) string) {
-		for _, line := range wrapCells(text, width) {
+		// Errors and local paths can contain provider-supplied filenames too.
+		// Escape before measuring, wrapping, or applying trusted styling.
+		for _, line := range wrapCells(escapeTerminalControls(text), width) {
 			lines = append(lines, "  "+render(line))
 		}
 	}
@@ -505,7 +507,7 @@ func (model Model) promptCard(title, question string) []string {
 	boxWidth := max(12, min(64, model.contentWidth()-4))
 	inner := max(1, boxWidth-4)
 	body := []string{model.warning.Render(truncate(title, inner)), ""}
-	for _, line := range wrapCells(question, inner) {
+	for _, line := range wrapCells(escapeTerminalControls(question), inner) {
 		body = append(body, line)
 	}
 	buttons := model.promptButtons()
@@ -582,13 +584,13 @@ func formatBytes(value int64) string {
 func displayPath(path string) string {
 	home, err := os.UserHomeDir()
 	if err != nil || home == "" {
-		return path
+		return escapeTerminalControls(path)
 	}
 	if path == home {
 		return "~"
 	}
 	if strings.HasPrefix(path, home+string(filepath.Separator)) {
-		return "~" + path[len(home):]
+		return escapeTerminalControls("~" + path[len(home):])
 	}
-	return path
+	return escapeTerminalControls(path)
 }
