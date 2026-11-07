@@ -98,6 +98,16 @@ type plannedCopy struct {
 }
 
 func Install(directory string, sources []string, overwrite bool, progress Progress) ([]Result, error) {
+	return InstallContext(context.Background(), directory, sources, overwrite, progress)
+}
+
+// InstallContext is Install with cancellation. It returns only after removing
+// its staging directory (or reporting a cleanup error). Already committed fonts
+// are retained on cancellation.
+func InstallContext(ctx context.Context, directory string, sources []string, overwrite bool, progress Progress) (results []Result, resultErr error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if progress == nil {
 		progress = func(int, int, bool) {}
 	}
@@ -111,13 +121,20 @@ func Install(directory string, sources []string, overwrite bool, progress Progre
 	if err != nil {
 		return nil, fmt.Errorf("Moji couldn't stage fonts in %s: %w", directory, err)
 	}
-	defer os.RemoveAll(staging)
+	defer func() {
+		if err := os.RemoveAll(staging); err != nil {
+			resultErr = errors.Join(resultErr, fmt.Errorf("Moji couldn't remove staging directory %s: %w", staging, err))
+		}
+	}()
 	plans := make([]plannedCopy, 0, len(sources))
 	var conflicts []string
 	for _, source := range sources {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		name := filepath.Base(source)
 		plan := plannedCopy{source: source, destination: filepath.Join(directory, name), staged: filepath.Join(staging, name)}
-		if err := stageFont(source, plan.staged); errors.Is(err, os.ErrExist) {
+		if err := stageFont(ctx, source, plan.staged); errors.Is(err, os.ErrExist) {
 			info, statErr := os.Stat(plan.staged)
 			if statErr != nil {
 				return nil, fmt.Errorf("Moji couldn't inspect staged font %s: %w", name, statErr)
@@ -126,7 +143,7 @@ func Install(directory string, sources []string, overwrite bool, progress Progre
 			if earlier < 0 {
 				return nil, fmt.Errorf("Moji couldn't reconcile staged font %s", name)
 			}
-			same, compareErr := equalFiles(plan.staged, source)
+			same, compareErr := equalFilesContext(ctx, plan.staged, source)
 			if compareErr != nil {
 				return nil, fmt.Errorf("Moji couldn't compare %s: %w", source, compareErr)
 			}
@@ -141,7 +158,7 @@ func Install(directory string, sources []string, overwrite bool, progress Progre
 		if err != nil {
 			return nil, fmt.Errorf("Moji couldn't inspect staged font %s: %w", name, err)
 		}
-		if same, err := equalFiles(plan.staged, plan.destination); err == nil {
+		if same, err := equalFilesContext(ctx, plan.staged, plan.destination); err == nil {
 			if same {
 				plan.existing = true
 			} else {
@@ -156,16 +173,19 @@ func Install(directory string, sources []string, overwrite bool, progress Progre
 	if len(conflicts) > 0 && !overwrite {
 		return nil, ConflictError{Directory: directory, Names: conflicts}
 	}
-	results := make([]Result, 0, len(plans))
+	results = make([]Result, 0, len(plans))
 	copied := false
 	for index, plan := range plans {
 		progress(index, len(plans), false)
+		if err := ctx.Err(); err != nil {
+			return results, err
+		}
 		if !plan.existing {
 			if err := writeFont(plan.staged, plan.destination, plan.replace); err != nil {
 				if copied {
 					_ = os.RemoveAll(staging)
 					progress(index, len(plans), true)
-					refresh(directory)
+					refresh(ctx, directory)
 				}
 				return results, err
 			}
@@ -177,15 +197,15 @@ func Install(directory string, sources []string, overwrite bool, progress Progre
 	if copied {
 		_ = os.RemoveAll(staging)
 		progress(len(plans), len(plans), true)
-		refresh(directory)
+		refresh(ctx, directory)
 	}
-	return results, nil
+	return results, ctx.Err()
 }
 
 // stageFont snapshots one regular file with bounded memory and exclusive
 // creation, preserving the filesystem's own filename-equivalence rules.
-func stageFont(source, staged string) error {
-	input, err := os.Open(source)
+func stageFont(ctx context.Context, source, staged string) error {
+	input, err := openRegularFile(source)
 	if err != nil {
 		return err
 	}
@@ -201,7 +221,7 @@ func stageFont(source, staged string) error {
 	if err != nil {
 		return err
 	}
-	_, copyErr := io.Copy(output, input)
+	_, copyErr := io.Copy(output, contextReader{ctx: ctx, reader: input})
 	return errors.Join(copyErr, output.Close())
 }
 
@@ -235,12 +255,16 @@ func writeFont(staged, destination string, replace bool) error {
 // equalFiles compares regular files with fixed-size buffers instead of
 // retaining either file (or an entire batch of fonts) in memory.
 func equalFiles(left, right string) (bool, error) {
-	leftFile, err := os.Open(left)
+	return equalFilesContext(context.Background(), left, right)
+}
+
+func equalFilesContext(ctx context.Context, left, right string) (bool, error) {
+	leftFile, err := openRegularFile(left)
 	if err != nil {
 		return false, err
 	}
 	defer leftFile.Close()
-	rightFile, err := os.Open(right)
+	rightFile, err := openRegularFile(right)
 	if err != nil {
 		return false, err
 	}
@@ -261,8 +285,8 @@ func equalFiles(left, right string) (bool, error) {
 	}
 	var leftBuffer, rightBuffer [32 * 1024]byte
 	for {
-		leftN, leftErr := io.ReadFull(leftFile, leftBuffer[:])
-		rightN, rightErr := io.ReadFull(rightFile, rightBuffer[:])
+		leftN, leftErr := io.ReadFull(contextReader{ctx: ctx, reader: leftFile}, leftBuffer[:])
+		rightN, rightErr := io.ReadFull(contextReader{ctx: ctx, reader: rightFile}, rightBuffer[:])
 		for _, readErr := range []error{leftErr, rightErr} {
 			if readErr != nil && !errors.Is(readErr, io.EOF) && !errors.Is(readErr, io.ErrUnexpectedEOF) {
 				return false, readErr
@@ -283,7 +307,7 @@ var refresh = refreshCache
 // refreshCache asks fontconfig to pick up the new files. It is best effort:
 // fontconfig rescans directories on its own, so a missing or failing fc-cache
 // only delays when applications notice the fonts.
-func refreshCache(directory string) {
+func refreshCache(parent context.Context, directory string) {
 	if runtime.GOOS == "darwin" {
 		return
 	}
@@ -291,7 +315,37 @@ func refreshCache(directory string) {
 	if err != nil {
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(parent, 30*time.Second)
 	defer cancel()
 	_ = exec.CommandContext(ctx, path, "-f", directory).Run()
+}
+
+// Check cancellation between bounded reads; do not let io.Copy select a
+// filesystem fast path that skips these checks.
+type contextReader struct {
+	ctx    context.Context
+	reader io.Reader
+}
+
+func (reader contextReader) Read(buffer []byte) (int, error) {
+	if err := reader.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return reader.reader.Read(buffer)
+}
+
+func openRegularFile(path string) (*os.File, error) {
+	file, err := openNonblocking(path)
+	if err != nil {
+		return nil, err
+	}
+	info, err := file.Stat()
+	if err != nil || !info.Mode().IsRegular() {
+		_ = file.Close()
+		if err != nil {
+			return nil, err
+		}
+		return nil, fmt.Errorf("%s is not a regular file", path)
+	}
+	return file, nil
 }
