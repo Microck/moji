@@ -304,7 +304,7 @@ func TestPreviewKeysCannotRetargetTheSelectedGroup(t *testing.T) {
 		{Filename: "Alpha-Regular.otf", Format: "otf", Source: "fixture"},
 		{Filename: "Alpha-Bold.otf", Format: "otf", Source: "fixture"},
 		{Filename: "Beta-Regular.otf", Format: "otf", Source: "fixture"},
-	}, func(result provider.Result) (string, error) {
+	}, func(result provider.Result, _ ProgressFunc) (string, error) {
 		downloaded = result.Filename
 		return "/tmp/" + result.Filename, nil
 	}, false)
@@ -328,7 +328,7 @@ func TestPreviewKeysCannotRetargetTheSelectedGroup(t *testing.T) {
 	if command == nil {
 		t.Fatal("preview download command is nil")
 	}
-	model.Update(command())
+	runDownload(t, model, command)
 	if downloaded != "Beta-Regular.otf" {
 		t.Fatalf("downloaded %q, want previewed Beta-Regular.otf", downloaded)
 	}
@@ -440,7 +440,7 @@ func TestHomeModelShowsGitHubConfigurationHint(t *testing.T) {
 
 func TestModelDownloadCommandReportsStatus(t *testing.T) {
 	t.Parallel()
-	model := NewModel([]provider.Result{{Filename: "Example.otf", Format: "otf"}}, func(result provider.Result) (string, error) {
+	model := NewModel([]provider.Result{{Filename: "Example.otf", Format: "otf"}}, func(result provider.Result, _ ProgressFunc) (string, error) {
 		return "/tmp/" + result.Filename, nil
 	}, false)
 	updated, command := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'D'}})
@@ -448,8 +448,7 @@ func TestModelDownloadCommandReportsStatus(t *testing.T) {
 	if command == nil {
 		t.Fatal("download command was not returned")
 	}
-	updated, _ = model.Update(command())
-	model = updated.(Model)
+	model = runDownload(t, model, command)
 	if !strings.Contains(model.status, "Downloaded 1 file(s): /tmp/Example.otf") {
 		t.Fatal(model.status)
 	}
@@ -515,7 +514,7 @@ func TestLiveResultsKeepTheOpenedFamilyAndSelectionsStable(t *testing.T) {
 	model := NewModel([]provider.Result{
 		{Filename: "Beta-Regular.ttf", Format: "ttf", Weight: "regular", Source: "fixture/beta", URL: "https://example.test/beta-regular.ttf"},
 		{Filename: "Beta-Bold.ttf", Format: "ttf", Weight: "bold", Source: "fixture/beta", URL: "https://example.test/beta-bold.ttf"},
-	}, func(result provider.Result) (string, error) {
+	}, func(result provider.Result, _ ProgressFunc) (string, error) {
 		downloaded = append(downloaded, result.Filename)
 		return "/tmp/" + result.Filename, nil
 	}, false)
@@ -537,7 +536,7 @@ func TestLiveResultsKeepTheOpenedFamilyAndSelectionsStable(t *testing.T) {
 	if command == nil {
 		t.Fatal("download command is nil")
 	}
-	model.Update(command())
+	runDownload(t, model, command)
 	if strings.Join(downloaded, ",") != "Beta-Bold.ttf,Beta-Regular.ttf" {
 		t.Fatalf("downloaded retargeted files: %v", downloaded)
 	}
@@ -582,7 +581,7 @@ func TestLiveResultsCannotRetargetAConfirmedFamilyDownload(t *testing.T) {
 		{Filename: "Beta-Medium.ttf", Format: "ttf", Weight: "medium", Source: "fixture/beta", URL: "https://example.test/beta-medium.ttf"},
 		{Filename: "Beta-Bold.ttf", Format: "ttf", Weight: "bold", Source: "fixture/beta", URL: "https://example.test/beta-bold.ttf"},
 		{Filename: "Beta-Black.ttf", Format: "ttf", Weight: "black", Source: "fixture/beta", URL: "https://example.test/beta-black.ttf"},
-	}, func(result provider.Result) (string, error) {
+	}, func(result provider.Result, _ ProgressFunc) (string, error) {
 		downloaded = append(downloaded, result.Filename)
 		return "/tmp/" + result.Filename, nil
 	}, false)
@@ -606,7 +605,7 @@ func TestLiveResultsCannotRetargetAConfirmedFamilyDownload(t *testing.T) {
 	if command == nil {
 		t.Fatal("confirmed download command is nil")
 	}
-	model.Update(command())
+	runDownload(t, model, command)
 	if len(downloaded) != 4 {
 		t.Fatalf("downloaded %d files, want 4 Beta styles: %v", len(downloaded), downloaded)
 	}
@@ -917,7 +916,7 @@ func TestLargeFamilyDownloadRequiresConfirmation(t *testing.T) {
 	for index, weight := range []string{"Regular", "Light", "Bold", "Black"} {
 		results[index] = provider.Result{Filename: "Example-" + weight + ".otf", Format: "otf", Source: "fixture"}
 	}
-	model := NewModel(results, func(result provider.Result) (string, error) { return "/tmp/" + result.Filename, nil }, false)
+	model := NewModel(results, func(result provider.Result, _ ProgressFunc) (string, error) { return "/tmp/" + result.Filename, nil }, false)
 	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	model = updated.(Model)
 	updated, command := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'D'}})

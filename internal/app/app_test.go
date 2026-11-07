@@ -254,7 +254,7 @@ func TestInteractiveDownloadRecordsInvalidURLHealth(t *testing.T) {
 	defer server.Close()
 	application := App{Client: server.Client(), allowPrivate: true}
 	downloadFont := application.interactiveDownloader(context.Background(), options{downloadDir: filepath.Join(root, "fonts")})
-	_, err := downloadFont(provider.Result{URL: server.URL, Filename: "Example.otf", Format: "otf"})
+	_, err := downloadFont(provider.Result{URL: server.URL, Filename: "Example.otf", Format: "otf"}, func(int64, int64) {})
 	if err == nil {
 		t.Fatal("interactive invalid download error = nil")
 	}

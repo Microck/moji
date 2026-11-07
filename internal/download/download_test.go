@@ -317,3 +317,26 @@ func TestRollbackBatchMovesPreservesReplacedFile(t *testing.T) {
 		t.Fatalf("replacement=%q err=%v", content, readErr)
 	}
 }
+
+func TestDownloadWithProgressReportsBytes(t *testing.T) {
+	t.Parallel()
+	body := append([]byte("OTTO"), make([]byte, 60)...)
+	server := httptest.NewTLSServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		response.Write(body)
+	}))
+	defer server.Close()
+	var lastWritten, lastTotal int64 = -2, -2
+	calls := 0
+	_, err := (Downloader{Client: server.Client(), AllowPrivate: true}).DownloadWithProgress(context.Background(), provider.Result{
+		URL: server.URL, Source: "fixture", Filename: "Example.otf", Format: "otf",
+	}, t.TempDir(), func(written, total int64) {
+		calls++
+		lastWritten, lastTotal = written, total
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls < 2 || lastWritten != int64(len(body)) || lastTotal != int64(len(body)) {
+		t.Fatalf("calls=%d written=%d total=%d", calls, lastWritten, lastTotal)
+	}
+}

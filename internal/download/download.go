@@ -76,7 +76,17 @@ func InvalidContentKey(err error) string {
 	return ""
 }
 
+// ProgressFunc receives the number of bytes read from the network so far and
+// the expected total. total is -1 when the server did not announce a length.
+type ProgressFunc func(written, total int64)
+
 func (d Downloader) Download(ctx context.Context, result provider.Result, destination string) (File, error) {
+	return d.DownloadWithProgress(ctx, result, destination, nil)
+}
+
+// DownloadWithProgress behaves like Download and reports transfer progress to
+// progress, which may be nil. Callbacks run on the downloading goroutine.
+func (d Downloader) DownloadWithProgress(ctx context.Context, result provider.Result, destination string, progress ProgressFunc) (File, error) {
 	parsed, err := url.Parse(result.URL)
 	if err != nil {
 		return File{}, fmt.Errorf("Moji couldn't use the download link from %s: %w. Try another result", result.Source, err)
@@ -118,9 +128,14 @@ func (d Downloader) Download(ctx context.Context, result provider.Result, destin
 	if response.ContentLength > limit {
 		return File{}, fmt.Errorf("the font is larger than the %d-byte safety limit, so no file was saved. Try another result", limit)
 	}
-	contentReader := io.Reader(response.Body)
+	body := io.Reader(response.Body)
+	if progress != nil {
+		progress(0, response.ContentLength)
+		body = &progressReader{reader: response.Body, total: response.ContentLength, report: progress}
+	}
+	contentReader := body
 	if result.ArchiveMember != "" {
-		archive, readErr := io.ReadAll(io.LimitReader(response.Body, limit+1))
+		archive, readErr := io.ReadAll(io.LimitReader(body, limit+1))
 		if readErr != nil {
 			return File{}, fmt.Errorf("the archive download stopped before it completed: %w. No file was saved", readErr)
 		}
@@ -190,6 +205,22 @@ func (d Downloader) Download(ctx context.Context, result provider.Result, destin
 		return File{}, fmt.Errorf("Moji couldn't move the validated font to %s: %w. No completed font was saved; check the directory permissions", finalPath, err)
 	}
 	return File{Path: finalPath, SHA256: digest}, nil
+}
+
+type progressReader struct {
+	reader  io.Reader
+	written int64
+	total   int64
+	report  ProgressFunc
+}
+
+func (reader *progressReader) Read(buffer []byte) (int, error) {
+	count, err := reader.reader.Read(buffer)
+	if count > 0 {
+		reader.written += int64(count)
+		reader.report(reader.written, reader.total)
+	}
+	return count, err
 }
 
 // DownloadBatch validates every file in an isolated staging directory before
