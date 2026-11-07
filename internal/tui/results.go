@@ -61,6 +61,7 @@ type Model struct {
 	downloadID     int
 	spinnerFrame   int
 	downloadPaths  []string
+	retryResults   []provider.Result
 	downloadErr    error
 	installState   installState
 	installPaths   []string
@@ -1059,7 +1060,7 @@ func (model *Model) refresh() {
 }
 
 func (model Model) capturePreview() previewSnapshot {
-	previewOpen := model.screen == screenPreview || model.screen == screenConfirm && model.returnScreen == screenPreview
+	previewOpen := model.screen == screenPreview || model.overPreview()
 	if !previewOpen || len(model.groups) == 0 {
 		return previewSnapshot{}
 	}
@@ -1089,8 +1090,13 @@ func (model *Model) restorePreview(snapshot previewSnapshot) {
 		}
 	}
 	if groupIndex < 0 {
-		model.screen = screenResults
-		model.detailOffset = 0
+		if model.screen == screenDownloading || model.screen == screenDownloadResult {
+			// Stay on the download screens; they return to the list instead.
+			model.returnScreen = screenResults
+		} else {
+			model.screen = screenResults
+			model.detailOffset = 0
+		}
 		model.previewWindow.home()
 		clear(model.selectedFiles)
 		return
@@ -1108,6 +1114,16 @@ func (model *Model) restorePreview(snapshot previewSnapshot) {
 		}
 	}
 	model.previewWindow.clamp(len(model.groups[groupIndex].Files), model.bodyHeight()-2)
+}
+
+// overPreview reports whether a confirm or download screen was opened from the
+// preview and will return to it.
+func (model Model) overPreview() bool {
+	switch model.screen {
+	case screenConfirm, screenDownloading, screenDownloadResult:
+		return model.returnScreen == screenPreview
+	}
+	return false
 }
 
 func (model Model) currentGroup() rank.ResultGroup {

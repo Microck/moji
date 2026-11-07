@@ -112,14 +112,14 @@ func TestDownloadShowsProgressScreen(t *testing.T) {
 
 func TestDownloadErrorIsShownWithoutLeavingPreview(t *testing.T) {
 	t.Parallel()
-	attempts := 0
+	var requested []string
 	model := NewModel([]provider.Result{
-		{Filename: "Alpha-Regular.otf", Format: "otf", Weight: "regular", Source: "fixture"},
-		{Filename: "Alpha-Bold.otf", Format: "otf", Weight: "bold", Source: "fixture"},
+		{Filename: "Alpha-Regular.otf", Format: "otf", Weight: "regular", Source: "fixture", URL: "https://example.test/alpha-regular.otf"},
+		{Filename: "Alpha-Bold.otf", Format: "otf", Weight: "bold", Source: "fixture", URL: "https://example.test/alpha-bold.otf"},
 	}, func(result provider.Result, _ ProgressFunc) (string, error) {
-		attempts++
+		requested = append(requested, provider.ResultIdentity(result))
 		// Fail the second file of each run so one file is saved first.
-		if attempts%2 == 0 {
+		if len(requested)%2 == 0 {
 			return "", errors.New("fixture couldn't provide the font (HTTP 404)")
 		}
 		return "/tmp/" + result.Filename, nil
@@ -128,6 +128,7 @@ func TestDownloadErrorIsShownWithoutLeavingPreview(t *testing.T) {
 	if model.screen != screenPreview {
 		t.Fatalf("preview did not open: %v", model.screen)
 	}
+	reviewedGroup := model.currentGroup().GroupID
 	model, command := press(model, "D")
 	model = runDownload(t, model, command)
 	view := model.View()
@@ -136,17 +137,102 @@ func TestDownloadErrorIsShownWithoutLeavingPreview(t *testing.T) {
 			t.Fatalf("error view lost %q:\n%s", wanted, view)
 		}
 	}
+	firstRun := append([]string(nil), requested...)
+
+	// Live results arrive while the error is shown: a new family member that
+	// shifts file indices and other families that can reorder the groups.
+	for _, live := range []provider.Result{
+		{Filename: "Alpha-Light.otf", Format: "otf", Weight: "light", Source: "fixture", URL: "https://example.test/alpha-light.otf"},
+		{Filename: "Aardvark-Regular.otf", Format: "otf", Weight: "regular", Source: "other", URL: "https://example.test/aardvark.otf"},
+		{Filename: "Zeta-Regular.otf", Format: "otf", Weight: "regular", Source: "zeta", URL: "https://example.test/zeta.otf"},
+	} {
+		updated, _ := model.Update(eventMessage{event: provider.Event{Provider: "fixture", Type: provider.EventResult, Result: live}, open: true})
+		model = updated.(Model)
+	}
+
 	model, command = press(model, "r")
 	if command == nil || model.screen != screenDownloading {
 		t.Fatalf("retry did not restart the download: screen=%v", model.screen)
 	}
 	model = runDownload(t, model, command)
-	if attempts != 4 {
-		t.Fatalf("retry made %d attempts, want 4", attempts)
+	if strings.Join(requested[2:], ",") != strings.Join(firstRun, ",") {
+		t.Fatalf("retry requested %v, want the original %v", requested[2:], firstRun)
 	}
 	model, _ = press(model, "esc")
-	if model.screen != screenPreview {
-		t.Fatalf("dismissing the error left preview: screen=%v", model.screen)
+	if model.screen != screenPreview || model.currentGroup().GroupID != reviewedGroup {
+		t.Fatalf("dismissing the error left the reviewed preview: screen=%v group=%q want %q", model.screen, model.currentGroup().GroupID, reviewedGroup)
+	}
+}
+
+func TestRetryFromResultsListIgnoresLiveReordering(t *testing.T) {
+	t.Parallel()
+	var requested []string
+	model := NewModel([]provider.Result{
+		{Filename: "Gamma-Regular.otf", Format: "otf", Weight: "regular", Source: "gamma", URL: "https://example.test/gamma.otf"},
+		{Filename: "Beta-Regular.otf", Format: "otf", Weight: "regular", Source: "beta", URL: "https://example.test/beta.otf"},
+	}, func(result provider.Result, _ ProgressFunc) (string, error) {
+		requested = append(requested, provider.ResultIdentity(result))
+		return "", errors.New("fixture couldn't provide the font (HTTP 503)")
+	}, false)
+	model, command := press(model, "D")
+	model = runDownload(t, model, command)
+	if len(requested) != 1 {
+		t.Fatalf("first run requested %v", requested)
+	}
+	// A live result that ranks first moves every group down one row, so the
+	// numeric cursor now points at a different family.
+	updated, _ := model.Update(eventMessage{event: provider.Event{Provider: "fixture", Type: provider.EventResult, Result: provider.Result{
+		Filename: "Alpha-Regular.otf", Format: "otf", Weight: "regular", Source: "alpha", URL: "https://example.test/alpha.otf",
+	}}, open: true})
+	model = updated.(Model)
+	if provider.ResultIdentity(model.currentGroup().Files[0]) == requested[0] {
+		t.Fatal("fixture no longer moves the cursor; the test would not catch a retargeted retry")
+	}
+	model, command = press(model, "r")
+	model = runDownload(t, model, command)
+	if len(requested) != 2 || requested[1] != requested[0] {
+		t.Fatalf("retry requested %v, want %q again", requested[1:], requested[0])
+	}
+}
+
+func TestDownloadProgressEscapesControlCharacters(t *testing.T) {
+	t.Parallel()
+	model := NewModel(nil, nil, false)
+	model.screen = screenDownloading
+	model.progress = &downloadProgress{count: 1, total: -1}
+	model.progress.start(0, 1, "Evil\x1b]0;pwned\x07.otf")
+	view := strings.Join(model.downloadingLines(), "\n")
+	if strings.ContainsAny(view, "\x1b\x07") || !strings.Contains(view, `Evil\u001B]0;pwned\u0007.otf`) {
+		t.Fatalf("control characters reached the terminal: %q", view)
+	}
+}
+
+func TestInstallSkipsUnsupportedFilesWithExplanation(t *testing.T) {
+	t.Parallel()
+	var installed []string
+	model := NewModel([]provider.Result{
+		{Filename: "Example-Regular.otf", Format: "otf", Weight: "regular", Source: "fixture", URL: "https://example.test/a.otf"},
+		{Filename: "Example-Bold.woff2", Format: "woff2", Weight: "bold", Source: "fixture", URL: "https://example.test/b.woff2"},
+	}, func(result provider.Result, _ ProgressFunc) (string, error) {
+		return "/downloads/" + result.Filename, nil
+	}, false).WithInstaller(&Installer{Dir: "/fonts",
+		Supports: func(path string) bool { return !strings.HasSuffix(path, ".woff2") },
+		Install: func(paths []string, _ bool, _ InstallProgressFunc) ([]string, error) {
+			installed = append(installed, paths...)
+			return []string{"/fonts/Example-Regular.otf"}, nil
+		}})
+	model, _ = press(model, "enter")
+	model.selectAllCurrentGroup()
+	model, command := press(model, "D")
+	model = runDownload(t, model, command)
+	view := model.View()
+	if !strings.Contains(view, "Copy 1 file(s)") || !strings.Contains(view, "Convert WOFF/WOFF2") {
+		t.Fatalf("install prompt did not explain the skipped web font:\n%s", view)
+	}
+	model, command = press(model, "y")
+	model = runInstall(t, model, command)
+	if strings.Join(installed, ",") != "/downloads/Example-Regular.otf" || !strings.Contains(model.View(), "Installed 1 file(s)") {
+		t.Fatalf("installed=%v view:\n%s", installed, model.View())
 	}
 }
 

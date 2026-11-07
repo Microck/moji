@@ -27,6 +27,11 @@ func UserFontDir() (string, bool) {
 	case "windows", "android", "ios", "js", "wasip1", "plan9":
 		return "", false
 	}
+	if runtime.GOOS != "darwin" {
+		if data := os.Getenv("XDG_DATA_HOME"); filepath.IsAbs(data) {
+			return filepath.Join(data, "fonts"), true
+		}
+	}
 	home, err := os.UserHomeDir()
 	if err != nil || home == "" {
 		return "", false
@@ -34,10 +39,25 @@ func UserFontDir() (string, bool) {
 	if runtime.GOOS == "darwin" {
 		return filepath.Join(home, "Library", "Fonts"), true
 	}
-	if data := os.Getenv("XDG_DATA_HOME"); filepath.IsAbs(data) {
-		return filepath.Join(data, "fonts"), true
-	}
 	return filepath.Join(home, ".local", "share", "fonts"), true
+}
+
+// Supports reports whether copying path into the user font directory installs
+// it. macOS can't install WOFF or WOFF2 web fonts; they must be converted to
+// TTF or OTF first.
+func Supports(path string) bool {
+	return supports(runtime.GOOS, path)
+}
+
+func supports(goos, path string) bool {
+	if goos != "darwin" {
+		return true
+	}
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".woff", ".woff2":
+		return false
+	}
+	return true
 }
 
 // Result describes one installed file.
@@ -84,6 +104,7 @@ func Install(directory string, sources []string, overwrite bool, progress Progre
 		existing, replace   bool
 	}
 	plans := make([]plannedCopy, 0, len(sources))
+	planned := make(map[string]int, len(sources))
 	var conflicts []string
 	for _, source := range sources {
 		content, err := os.ReadFile(source)
@@ -92,6 +113,16 @@ func Install(directory string, sources []string, overwrite bool, progress Progre
 		}
 		name := filepath.Base(source)
 		plan := plannedCopy{source: source, destination: filepath.Join(directory, name), content: content}
+		// Two sources with the same name would land on one destination. Keep a
+		// single copy when they match, and refuse the whole install before
+		// copying anything when they don't.
+		if earlier, ok := planned[plan.destination]; ok {
+			if !bytes.Equal(plans[earlier].content, content) {
+				return nil, fmt.Errorf("Moji couldn't install %s and %s: both are named %s but differ. Nothing was installed; rename one and try again", plans[earlier].source, source, name)
+			}
+			continue
+		}
+		planned[plan.destination] = len(plans)
 		if same, err := sameFile(source, plan.destination); err == nil && same {
 			plan.existing = true
 		} else if installed, err := os.ReadFile(plan.destination); err == nil {

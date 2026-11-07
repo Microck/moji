@@ -220,7 +220,7 @@ func interactiveInstaller() *tui.Installer {
 			installed = append(installed, result.Path)
 		}
 		return installed, err
-	}}
+	}, Supports: fontinstall.Supports}
 }
 
 func selectProviders(available map[string]provider.Provider, current config.Config, requested string) ([]provider.Provider, error) {

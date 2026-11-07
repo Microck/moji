@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -26,6 +27,10 @@ type Installer struct {
 	// replace a different file and return an InstallConflict error instead. It
 	// reports each step through progress, which is never nil.
 	Install func(paths []string, overwrite bool, progress InstallProgressFunc) (installed []string, err error)
+	// Supports reports whether path can be installed by copying it into Dir.
+	// Unsupported files are left out of the install and explained instead. A
+	// nil Supports accepts every file.
+	Supports func(path string) bool
 }
 
 // InstallProgressFunc reports that done of total files are copied. refreshing
@@ -118,6 +123,13 @@ func (model Model) startDownload() (Model, tea.Cmd) {
 	if model.screen != screenConfirm {
 		model.returnScreen = model.screen
 	}
+	return model.runDownload(selected)
+}
+
+// runDownload downloads exactly selected. It keeps the list so a retry fetches
+// the same fonts even if live results reorder the groups in the meantime.
+func (model Model) runDownload(selected []provider.Result) (Model, tea.Cmd) {
+	model.retryResults = selected
 	model.downloadID++
 	model.screen = screenDownloading
 	model.spinnerFrame = 0
@@ -169,15 +181,48 @@ func (model Model) pathsToInstall() []string {
 	if model.installer == nil {
 		return nil
 	}
+	paths, _ := model.splitInstallPaths()
+	return paths
+}
+
+// unsupportedInstallPaths lists downloads the platform can't install as-is,
+// such as WOFF/WOFF2 on macOS.
+func (model Model) unsupportedInstallPaths() []string {
+	_, unsupported := model.splitInstallPaths()
+	return unsupported
+}
+
+func (model Model) splitInstallPaths() (paths, unsupported []string) {
+	if model.installer == nil {
+		return nil, nil
+	}
 	target := filepath.Clean(model.installer.Dir)
-	paths := make([]string, 0, len(model.downloadPaths))
+	paths = make([]string, 0, len(model.downloadPaths))
 	for _, path := range model.downloadPaths {
 		if path == "" || filepath.Clean(filepath.Dir(path)) == target {
 			continue
 		}
+		if model.installer.Supports != nil && !model.installer.Supports(path) {
+			unsupported = append(unsupported, path)
+			continue
+		}
 		paths = append(paths, path)
 	}
-	return paths
+	return paths, unsupported
+}
+
+// unsupportedInstallNote explains why some downloads were left out of the
+// install, or returns "" when every download can be installed.
+func (model Model) unsupportedInstallNote() string {
+	unsupported := model.unsupportedInstallPaths()
+	if len(unsupported) == 0 {
+		return ""
+	}
+	names := make([]string, len(unsupported))
+	for index, path := range unsupported {
+		names[index] = escapeTerminalControls(filepath.Base(path))
+	}
+	return fmt.Sprintf("Not installed: %s. Convert WOFF/WOFF2 files to TTF or OTF before installing them on this system.", strings.Join(names, ", "))
 }
 
 // installRefreshLabel marks the font-cache step in the shared progress state.
@@ -268,10 +313,10 @@ func (model Model) updateDownloadResult(message tea.KeyMsg) (tea.Model, tea.Cmd)
 	case "enter", "esc", "q", " ":
 		return model.leaveDownloadResult(), nil
 	case "D", "r":
-		if model.downloadErr != nil {
-			// Retry the same selection from where the user started.
-			model.screen = model.returnScreen
-			return model.startDownload()
+		if model.downloadErr != nil && len(model.retryResults) > 0 {
+			// Retry the fonts that were reviewed, not whatever the cursor now
+			// points at after live results reordered the list.
+			return model.runDownload(model.retryResults)
 		}
 	}
 	return model, nil
@@ -323,7 +368,7 @@ func (model Model) downloadingLines() []string {
 	index, count, filename, written, total := model.progress.snapshot()
 	heading := fmt.Sprintf("%s Downloading file %d of %d", spinner, index+1, count)
 	lines := []string{"", "  " + model.warning.Render(heading), ""}
-	for _, line := range wrapCells(filename, max(1, width-2)) {
+	for _, line := range wrapCells(escapeTerminalControls(filename), max(1, width-2)) {
 		lines = append(lines, "  "+model.accent.Render(line))
 	}
 	lines = append(lines, "")
@@ -395,6 +440,10 @@ func (model Model) downloadResultLines() []string {
 		for _, path := range model.downloadPaths {
 			addWrapped("  "+displayPath(path), plain)
 		}
+	}
+	if note := model.unsupportedInstallNote(); note != "" && model.downloadErr == nil {
+		lines = append(lines, "")
+		addWrapped(note, model.secondary.Render)
 	}
 	switch model.installState {
 	case installPrompt:
@@ -503,6 +552,20 @@ func (model Model) installingLines() []string {
 		bar = model.success.Render(strings.Repeat("█", filled)) + model.faint.Render(strings.Repeat("░", barWidth-filled))
 	}
 	return []string{"  " + model.warning.Render(truncate(heading, max(1, model.contentWidth()-2))), "", "  " + bar}
+}
+
+// escapeTerminalControls makes control and format characters visible as
+// \uXXXX so provider-supplied text cannot drive the terminal.
+func escapeTerminalControls(value string) string {
+	var escaped strings.Builder
+	for _, character := range value {
+		if unicode.IsControl(character) || unicode.Is(unicode.Cf, character) {
+			fmt.Fprintf(&escaped, "\\u%04X", character)
+			continue
+		}
+		escaped.WriteRune(character)
+	}
+	return escaped.String()
 }
 
 func formatBytes(value int64) string {

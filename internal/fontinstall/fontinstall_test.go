@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -70,5 +71,61 @@ func TestInstallConflictCopiesNothing(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(fontDir, "A.otf")); !os.IsNotExist(err) {
 		t.Fatalf("a conflicting install still copied A.otf: %v", err)
+	}
+}
+
+func TestInstallReconcilesSourcesSharingADestination(t *testing.T) {
+	first, second, fontDir := t.TempDir(), t.TempDir(), t.TempDir()
+	write := func(directory, content string) string {
+		path := filepath.Join(directory, "Example.otf")
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	left, right := write(first, "OTTO-same"), write(second, "OTTO-same")
+	results, err := Install(fontDir, []string{left, right}, false, nil)
+	if err != nil || len(results) != 1 {
+		t.Fatalf("identical duplicates: results=%+v err=%v", results, err)
+	}
+
+	otherDir := t.TempDir()
+	differing := write(t.TempDir(), "OTTO-other")
+	extra := filepath.Join(first, "Extra.otf")
+	if err := os.WriteFile(extra, []byte("OTTO-extra"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Install(otherDir, []string{extra, left, differing}, true, nil); err == nil {
+		t.Fatal("differing sources for one destination were accepted")
+	}
+	if entries, _ := os.ReadDir(otherDir); len(entries) != 0 {
+		t.Fatalf("rejected plan left a partial install: %v", entries)
+	}
+}
+
+func TestUserFontDirPrefersXDGWithoutHome(t *testing.T) {
+	if runtime.GOOS == "darwin" || runtime.GOOS == "windows" {
+		t.Skip("XDG_DATA_HOME only applies to fontconfig platforms")
+	}
+	data := t.TempDir()
+	t.Setenv("HOME", "")
+	t.Setenv("XDG_DATA_HOME", data)
+	directory, ok := UserFontDir()
+	if !ok || directory != filepath.Join(data, "fonts") {
+		t.Fatalf("directory=%q ok=%v", directory, ok)
+	}
+}
+
+func TestSupportsRejectsWebFontsOnMacOS(t *testing.T) {
+	for _, name := range []string{"a.woff", "b.WOFF2"} {
+		if supports("darwin", name) {
+			t.Errorf("%s reported installable on macOS", name)
+		}
+		if !supports("linux", name) {
+			t.Errorf("%s reported uninstallable on linux", name)
+		}
+	}
+	if !supports("darwin", "c.otf") {
+		t.Error("otf reported uninstallable on macOS")
 	}
 }
