@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -31,6 +32,9 @@ type Installer struct {
 	// Unsupported files are left out of the install and explained instead. A
 	// nil Supports accepts every file.
 	Supports func(path string) bool
+	// Cancel requests shutdown of an active Install. It must be safe to call
+	// concurrently with Install. Run waits for Install to return after Cancel.
+	Cancel context.CancelFunc
 }
 
 // InstallProgressFunc reports that done of total files are copied. refreshing
@@ -653,4 +657,39 @@ func displayPath(path string) string {
 		return escapeTerminalControls("~" + path[len(home):])
 	}
 	return escapeTerminalControls(path)
+}
+
+// manageInstaller joins commands before Run returns, including when Bubble Tea
+// exits through a signal or an I/O error. The lock also rejects commands that
+// were queued but had not started when shutdown began.
+func (model Model) manageInstaller() (Model, func()) {
+	if model.installer == nil || model.installer.Install == nil {
+		return model, func() {}
+	}
+	installer := *model.installer
+	install := installer.Install
+	var mutex sync.Mutex
+	var active sync.WaitGroup
+	stopped := false
+	installer.Install = func(paths []string, overwrite bool, progress InstallProgressFunc) ([]string, error) {
+		mutex.Lock()
+		if stopped {
+			mutex.Unlock()
+			return nil, context.Canceled
+		}
+		active.Add(1)
+		mutex.Unlock()
+		defer active.Done()
+		return install(paths, overwrite, progress)
+	}
+	model.installer = &installer
+	return model, func() {
+		mutex.Lock()
+		stopped = true
+		mutex.Unlock()
+		if installer.Cancel != nil {
+			installer.Cancel()
+		}
+		active.Wait()
+	}
 }
