@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"sort"
@@ -1378,8 +1379,24 @@ func displayFormat(result provider.Result) string {
 }
 
 func Run(input io.Reader, output io.Writer, model Model) error {
+	return runWithInstaller(model, func(model Model) (tea.Model, error) {
+		return tea.NewProgram(model, tea.WithInput(input), tea.WithOutput(output), tea.WithAltScreen()).Run()
+	})
+}
+
+func runWithInstaller(model Model, run func(Model) (tea.Model, error)) (err error) {
 	model, finishInstall := model.manageInstaller()
-	defer finishInstall()
-	_, err := tea.NewProgram(model, tea.WithInput(input), tea.WithOutput(output), tea.WithAltScreen()).Run()
+	pendingInstall := true
+	defer func() {
+		installErr := finishInstall()
+		if pendingInstall {
+			err = errors.Join(err, installErr)
+		}
+	}()
+	final, err := run(model)
+	if finalModel, ok := final.(Model); ok {
+		// Completed install errors have already been presented by the TUI.
+		pendingInstall = finalModel.installState == installRunning
+	}
 	return err
 }
