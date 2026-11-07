@@ -171,6 +171,7 @@ func (model Model) finishDownload(message downloadMessage) Model {
 	if model.installer != nil && model.installer.Dir != "" && model.installer.Install != nil && len(model.pathsToInstall()) > 0 {
 		model.installState = installPrompt
 		model.promptChoice = 0
+		model = model.focusInstallPrompt()
 	}
 	return model
 }
@@ -299,6 +300,12 @@ func (model Model) updateDownloadResult(message tea.KeyMsg) (tea.Model, tea.Cmd)
 			return model, nil
 		}
 		if accept {
+			// Scrolling or resizing must never leave a hidden affirmative action
+			// active. First show the complete question and selection; a later key
+			// can confirm it. An undersized terminal must be enlarged first.
+			if !model.installPromptVisible() {
+				return model.focusInstallPrompt(), nil
+			}
 			return model.startInstall(model.installState == installConflict)
 		}
 		if model.installState == installConflict {
@@ -339,8 +346,7 @@ func (model Model) finishInstall(message installMessage) Model {
 		// Overwriting is destructive, so the safe answer is the default.
 		model.promptChoice = 1
 		model.conflictNames = conflict.ConflictNames()
-		model.detailOffset = 0
-		return model
+		return model.focusInstallPrompt()
 	}
 	model.installState = installDone
 	model.installPaths = message.paths
@@ -448,18 +454,9 @@ func (model Model) downloadResultLines() []string {
 		addWrapped(note, model.secondary.Render)
 	}
 	switch model.installState {
-	case installPrompt:
+	case installPrompt, installConflict:
 		lines = append(lines, "")
-		lines = append(lines, model.promptCard("Install this font?",
-			fmt.Sprintf("Copy %d file(s) to %s to install?", len(model.pathsToInstall()), displayPath(model.installer.Dir)))...)
-	case installConflict:
-		lines = append(lines, "")
-		noun := "a different font named"
-		if len(model.conflictNames) > 1 {
-			noun = "different fonts named"
-		}
-		lines = append(lines, model.promptCard("Font already installed",
-			fmt.Sprintf("%s already has %s %s. Overwrite?", displayPath(model.installer.Dir), noun, strings.Join(model.conflictNames, ", ")))...)
+		lines = append(lines, model.installPromptLines()...)
 	case installRunning:
 		lines = append(lines, "")
 		lines = append(lines, model.installingLines()...)
@@ -481,8 +478,52 @@ func (model Model) downloadResultLines() []string {
 	return lines
 }
 
+func (model Model) installPromptLines() []string {
+	switch model.installState {
+	case installPrompt:
+		return model.promptCard("Install this font?",
+			fmt.Sprintf("Copy %d file(s) to %s to install?", len(model.pathsToInstall()), displayPath(model.installer.Dir)))
+	case installConflict:
+		noun := "a different font named"
+		if len(model.conflictNames) > 1 {
+			noun = "different fonts named"
+		}
+		return model.promptCard("Font already installed",
+			fmt.Sprintf("%s already has %s %s. Overwrite?", displayPath(model.installer.Dir), noun, strings.Join(model.conflictNames, ", ")))
+	}
+	return nil
+}
+
+func (model Model) focusInstallPrompt() Model {
+	model.detailOffset = max(0, len(model.downloadResultLines())-model.bodyHeight())
+	return model
+}
+
+func (model Model) installPromptVisible() bool {
+	prompt := model.installPromptLines()
+	if len(prompt) == 0 || len(prompt) > model.bodyHeight() {
+		return false
+	}
+	for _, line := range prompt {
+		if lipgloss.Width(line) > model.contentWidth() {
+			return false
+		}
+	}
+	count := len(model.downloadResultLines())
+	offset := min(model.detailOffset, max(0, count-model.bodyHeight()))
+	// The prompt is the final block. Both its first line and its final button
+	// line must be inside the viewport, not merely the current selection.
+	return offset <= count-len(prompt) && offset+model.bodyHeight() >= count
+}
+
 func (model Model) downloadResultHelp() string {
 	if model.installState == installPrompt || model.installState == installConflict {
+		if !model.installPromptVisible() {
+			if len(model.installPromptLines()) > model.bodyHeight() {
+				return model.faint.Render("resize to confirm  n/esc: skip")
+			}
+			return model.faint.Render("enter/y: show prompt  j/k: scroll  n/esc: skip")
+		}
 		if model.contentWidth() < 34 {
 			return model.faint.Render("<-/-> enter  y/n")
 		}
@@ -529,6 +570,25 @@ func (model Model) promptCard(title, question string) []string {
 	lines := strings.Split(card, "\n")
 	for index := range lines {
 		lines[index] = "  " + lines[index]
+	}
+	fits := len(lines) <= model.bodyHeight()
+	for _, line := range lines {
+		fits = fits && lipgloss.Width(line) <= model.contentWidth()
+	}
+	if !fits {
+		// Drop decoration before dropping any consent text. If even this
+		// compact question cannot fit, confirmation remains disabled.
+		width := max(1, model.contentWidth()-2)
+		lines = wrapCells(escapeTerminalControls(question), width)
+		for index, label := range buttons {
+			if index == model.promptChoice {
+				label = "[ " + label + " ]"
+			}
+			lines = append(lines, wrapCells(label, width)...)
+		}
+		for index := range lines {
+			lines[index] = "  " + lines[index]
+		}
 	}
 	return lines
 }
