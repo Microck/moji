@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 func init() { refresh = func(context.Context, string) {} }
@@ -371,5 +372,131 @@ func TestInstallRejectsDirectoryDestination(t *testing.T) {
 	entries, err := os.ReadDir(fonts)
 	if err != nil || len(entries) != 1 || !entries[0].IsDir() {
 		t.Fatalf("destination changed or staging retained: entries=%v err=%v", entries, err)
+	}
+}
+
+// Cancel at a deterministic read checkpoint without timing or oversized files.
+type cancelAfterChecks struct {
+	context.Context
+	cancel          context.CancelFunc
+	allowed, checks int
+}
+
+func (ctx *cancelAfterChecks) Err() error {
+	ctx.checks++
+	if ctx.checks > ctx.allowed {
+		ctx.cancel()
+	}
+	return ctx.Context.Err()
+}
+
+func TestStagingAndComparisonCancelBetweenReadChunks(t *testing.T) {
+	content := bytes.Repeat([]byte("font"), 256*1024)
+	source, other := filepath.Join(t.TempDir(), "source.otf"), filepath.Join(t.TempDir(), "other.otf")
+	for _, path := range []string{source, other} {
+		if err := os.WriteFile(path, content, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Run("staging", func(t *testing.T) {
+		parent, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		ctx := &cancelAfterChecks{Context: parent, cancel: cancel, allowed: 1}
+		staged := filepath.Join(t.TempDir(), "staged.otf")
+		if err := stageFont(ctx, source, staged); !errors.Is(err, context.Canceled) {
+			t.Fatalf("stage error=%v", err)
+		}
+		info, err := os.Stat(staged)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.Size() <= 0 || info.Size() >= int64(len(content)) {
+			t.Fatalf("staging read all input or none: size=%d", info.Size())
+		}
+	})
+	t.Run("comparison", func(t *testing.T) {
+		parent, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		ctx := &cancelAfterChecks{Context: parent, cancel: cancel, allowed: 2}
+		if same, err := equalFilesContext(ctx, source, other); same || !errors.Is(err, context.Canceled) {
+			t.Fatalf("same=%v err=%v", same, err)
+		}
+		if ctx.checks != 4 {
+			t.Fatalf("comparison did not stop in its second buffer pair: checks=%d", ctx.checks)
+		}
+	})
+}
+
+func TestPartialCancellationRefreshesAfterCleanup(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	sourceDir, fonts := t.TempDir(), t.TempDir()
+	var sources []string
+	for _, name := range []string{"A.otf", "B.otf"} {
+		path := filepath.Join(sourceDir, name)
+		if err := os.WriteFile(path, []byte("new"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(fonts, name), []byte("old"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		sources = append(sources, path)
+	}
+	previous := refresh
+	defer func() { refresh = previous }()
+	refreshed := false
+	refresh = func(refreshCtx context.Context, directory string) {
+		refreshed = true
+		if refreshCtx.Err() != nil || directory != fonts {
+			t.Fatalf("refresh context=%v directory=%q", refreshCtx.Err(), directory)
+		}
+		deadline, ok := refreshCtx.Deadline()
+		if !ok || time.Until(deadline) > 2*time.Second || time.Until(deadline) <= 0 {
+			t.Fatal("cancellation refresh must have a live two-second limit")
+		}
+		entries, err := os.ReadDir(fonts)
+		if err != nil || len(entries) != 2 {
+			t.Fatalf("staging was not cleaned before refresh: entries=%v err=%v", entries, err)
+		}
+	}
+	results, err := InstallContext(ctx, fonts, sources, true, func(done, _ int, refreshing bool) {
+		if done == 1 && !refreshing {
+			cancel()
+		}
+	})
+	if !refreshed || len(results) != 1 || !errors.Is(err, context.Canceled) {
+		t.Fatalf("refreshed=%v results=%v err=%v", refreshed, results, err)
+	}
+	for name, want := range map[string]string{"A.otf": "new", "B.otf": "old"} {
+		if got, err := os.ReadFile(filepath.Join(fonts, name)); err != nil || string(got) != want {
+			t.Fatalf("%s=%q err=%v", name, got, err)
+		}
+	}
+}
+
+func TestCancellationDuringRefreshGetsBoundedRetry(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	source, fonts := filepath.Join(t.TempDir(), "font.otf"), t.TempDir()
+	if err := os.WriteFile(source, []byte("font"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	previous := refresh
+	defer func() { refresh = previous }()
+	calls := 0
+	refresh = func(refreshCtx context.Context, _ string) {
+		calls++
+		if calls == 1 {
+			cancel()
+			return
+		}
+		deadline, bounded := refreshCtx.Deadline()
+		if refreshCtx.Err() != nil || !bounded || time.Until(deadline) > 2*time.Second {
+			t.Fatal("refresh retry was canceled or unbounded")
+		}
+	}
+	results, err := InstallContext(ctx, fonts, []string{source}, false, nil)
+	if calls != 2 || len(results) != 1 || !errors.Is(err, context.Canceled) {
+		t.Fatalf("calls=%d results=%v err=%v", calls, results, err)
 	}
 }
