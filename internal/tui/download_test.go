@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -550,29 +551,81 @@ func TestInstallPromptShortTerminalAndResize(t *testing.T) {
 
 func TestOverwriteRequiresVisibleQuestionAndSelection(t *testing.T) {
 	t.Parallel()
-	model := NewModel(nil, nil, false).WithInstaller(&Installer{
-		Dir: "/fonts", Install: func([]string, bool, InstallProgressFunc) ([]string, error) { return nil, nil },
-	})
-	model.width, model.height = 80, 16
-	var paths []string
-	for index := range 30 {
-		paths = append(paths, fmt.Sprintf("/downloads/font-%02d.otf", index))
+	for _, key := range []string{"enter", "y", "Y"} {
+		t.Run(key, func(t *testing.T) {
+			model := NewModel(nil, nil, false).WithInstaller(&Installer{
+				Dir: "/fonts", Install: func([]string, bool, InstallProgressFunc) ([]string, error) { return nil, nil },
+			})
+			model.width, model.height = 80, 16
+			var paths []string
+			for index := range 30 {
+				paths = append(paths, fmt.Sprintf("/downloads/font-%02d.otf", index))
+			}
+			model = model.finishDownload(downloadMessage{paths: paths})
+			model = model.finishInstall(installMessage{err: fakeConflict{names: []string{"font-00.otf"}}})
+			if !model.installPromptVisible() || !strings.Contains(model.View(), "[ Keep existing ]") {
+				t.Fatalf("overwrite question/default hidden:\n%s", model.View())
+			}
+			model, _ = press(model, "right")
+			for model.detailOffset > 0 {
+				model, _ = press(model, "k")
+			}
+			model, command := press(model, key)
+			if command != nil || model.installState != installConflict || !model.installPromptVisible() || !strings.Contains(model.View(), "[ Overwrite ]") || !strings.Contains(model.View(), "/fonts") {
+				t.Fatalf("hidden overwrite accepted or question not shown:\n%s", model.View())
+			}
+			model, command = press(model, key)
+			if command == nil || model.installState != installRunning {
+				t.Fatal("visible overwrite could not be confirmed")
+			}
+		})
 	}
-	model = model.finishDownload(downloadMessage{paths: paths})
-	model = model.finishInstall(installMessage{err: fakeConflict{names: []string{"font-00.otf"}}})
-	if !model.installPromptVisible() || !strings.Contains(model.View(), "[ Keep existing ]") {
-		t.Fatalf("overwrite question/default hidden:\n%s", model.View())
+}
+
+func TestInstallerShutdownCancelsAndWaitsForCleanup(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	started, release, cleaned := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	original := &Installer{Dir: "/fonts", Cancel: cancel, Install: func([]string, bool, InstallProgressFunc) ([]string, error) {
+		close(started)
+		defer close(cleaned)
+		<-ctx.Done()
+		<-release
+		return nil, ctx.Err()
+	}}
+	model, shutdown := NewModel(nil, nil, false).WithInstaller(original).manageInstaller()
+	result := make(chan error, 1)
+	go func() {
+		_, err := model.installer.Install(nil, false, nil)
+		result <- err
+	}()
+	<-started
+	finished := make(chan struct{})
+	go func() {
+		shutdown()
+		close(finished)
+	}()
+	<-ctx.Done()
+	select {
+	case <-finished:
+		t.Fatal("shutdown returned before installer cleanup")
+	default:
 	}
-	model, _ = press(model, "right")
-	for model.detailOffset > 0 {
-		model, _ = press(model, "k")
+	close(release)
+	<-finished
+	select {
+	case <-cleaned:
+	default:
+		t.Fatal("cleanup not finished")
 	}
-	model, command := press(model, "enter")
-	if command != nil || model.installState != installConflict || !strings.Contains(model.View(), "[ Overwrite ]") || !strings.Contains(model.View(), "/fonts") {
-		t.Fatalf("hidden overwrite accepted or question not shown:\n%s", model.View())
+	if err := <-result; !errors.Is(err, context.Canceled) {
+		t.Fatalf("install result: %v", err)
 	}
-	model, command = press(model, "enter")
-	if command == nil || model.installState != installRunning {
-		t.Fatal("visible overwrite could not be confirmed")
+	if _, err := model.installer.Install(nil, false, nil); !errors.Is(err, context.Canceled) {
+		t.Fatalf("late queued command was not rejected: %v", err)
+	}
+	if model.installer == original {
+		t.Fatal("shutdown management mutated shared installer")
 	}
 }
