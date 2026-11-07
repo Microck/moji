@@ -2,6 +2,7 @@ package fontinstall
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -11,7 +12,7 @@ import (
 	"testing"
 )
 
-func init() { refresh = func(string) {} }
+func init() { refresh = func(context.Context, string) {} }
 
 func TestInstallCopiesAndReusesIdenticalFiles(t *testing.T) {
 	sourceDir, fontDir := t.TempDir(), filepath.Join(t.TempDir(), "fonts")
@@ -106,7 +107,8 @@ func TestInstallReconcilesSourcesSharingADestination(t *testing.T) {
 }
 
 func TestUserFontDirPrefersXDGWithoutHome(t *testing.T) {
-	if runtime.GOOS == "darwin" || runtime.GOOS == "windows" || runtime.GOOS == "plan9" {
+	if runtime.GOOS == "darwin" || runtime.GOOS == "windows" || runtime.GOOS == "plan9" ||
+		runtime.GOOS == "android" || runtime.GOOS == "ios" || runtime.GOOS == "js" || runtime.GOOS == "wasip1" {
 		t.Skip("XDG_DATA_HOME only applies to fontconfig platforms")
 	}
 	data := t.TempDir()
@@ -304,4 +306,70 @@ func TestInstallReconcilesCaseEquivalentDestinations(t *testing.T) {
 		}
 	}
 	t.Logf("case-insensitive filesystem: %v", insensitive)
+}
+
+func TestInstallCancellationCleansStagingBeforeReturn(t *testing.T) {
+	for _, cancelAfter := range []int{0, 1} {
+		t.Run(fmt.Sprint(cancelAfter), func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			sourceDir, fontDir := t.TempDir(), t.TempDir()
+			var sources []string
+			for _, name := range []string{"A.otf", "B.otf"} {
+				path := filepath.Join(sourceDir, name)
+				if err := os.WriteFile(path, []byte("font"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				sources = append(sources, path)
+			}
+			results, err := InstallContext(ctx, fontDir, sources, false, func(done, _ int, refreshing bool) {
+				if done == cancelAfter && !refreshing {
+					cancel()
+				}
+			})
+			if !errors.Is(err, context.Canceled) || len(results) != cancelAfter {
+				t.Fatalf("results=%v err=%v", results, err)
+			}
+			entries, err := os.ReadDir(fontDir)
+			if err != nil || len(entries) != cancelAfter {
+				t.Fatalf("cancellation left staging files: entries=%v err=%v", entries, err)
+			}
+			for _, entry := range entries {
+				if strings.HasPrefix(entry.Name(), ".moji-stage-") {
+					t.Fatalf("staging directory retained: %s", entry.Name())
+				}
+			}
+		})
+	}
+}
+
+func TestContextReaderStopsAfterCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	reader := contextReader{ctx: ctx, reader: strings.NewReader("font data")}
+	buffer := make([]byte, 4)
+	if n, err := reader.Read(buffer); n != 4 || err != nil {
+		t.Fatalf("first read: n=%d err=%v", n, err)
+	}
+	cancel()
+	if n, err := reader.Read(buffer); n != 0 || !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled read: n=%d err=%v", n, err)
+	}
+}
+
+func TestInstallRejectsDirectoryDestination(t *testing.T) {
+	source, fonts := filepath.Join(t.TempDir(), "Example.otf"), t.TempDir()
+	if err := os.WriteFile(source, []byte("font"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(fonts, "Example.otf"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Install(fonts, []string{source}, true, nil); err == nil {
+		t.Fatal("directory destination accepted")
+	}
+	entries, err := os.ReadDir(fonts)
+	if err != nil || len(entries) != 1 || !entries[0].IsDir() {
+		t.Fatalf("destination changed or staging retained: entries=%v err=%v", entries, err)
+	}
 }
