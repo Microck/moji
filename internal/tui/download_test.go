@@ -2,6 +2,7 @@ package tui
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -478,5 +479,100 @@ func TestDisplayPathEscapesAfterHomeAbbreviation(t *testing.T) {
 		if strings.ContainsRune(displayed, '\t') || !strings.Contains(displayed, `\u0009`) {
 			t.Fatalf("displayPath(%q) = %q", path, displayed)
 		}
+	}
+}
+
+func TestInstallPromptIsVisibleBeforeConfirmation(t *testing.T) {
+	t.Parallel()
+	for _, key := range []string{"enter", "y"} {
+		t.Run(key, func(t *testing.T) {
+			model := NewModel(nil, nil, false).WithInstaller(&Installer{
+				Dir: "/fonts", Install: func([]string, bool, InstallProgressFunc) ([]string, error) { return nil, nil },
+			})
+			model.width, model.height = 80, 16
+			var paths []string
+			for index := range 40 {
+				paths = append(paths, fmt.Sprintf("/downloads/font-%02d.otf", index))
+			}
+			model = model.finishDownload(downloadMessage{paths: paths})
+			view := model.View()
+			if !model.installPromptVisible() || !strings.Contains(view, "Copy 40 file(s) to /fonts") || !strings.Contains(view, "[ Install ]") {
+				t.Fatalf("long summary hid initial consent:\n%s", view)
+			}
+			assertViewFits(t, view, 80, 16)
+			for model.detailOffset > 0 {
+				model, _ = press(model, "k")
+			}
+			if !strings.Contains(model.View(), "font-00.otf") || model.installPromptVisible() {
+				t.Fatalf("summary could not be inspected:\n%s", model.View())
+			}
+			model, command := press(model, key)
+			if command != nil || model.installState != installPrompt || !model.installPromptVisible() {
+				t.Fatalf("hidden prompt accepted %q: state=%v command=%v", key, model.installState, command != nil)
+			}
+			model, command = press(model, key)
+			if command == nil || model.installState != installRunning {
+				t.Fatal("visible confirmation did not start installation")
+			}
+		})
+	}
+}
+
+func TestInstallPromptShortTerminalAndResize(t *testing.T) {
+	t.Parallel()
+	model := NewModel(nil, nil, false).WithInstaller(&Installer{
+		Dir: "/fonts", Install: func([]string, bool, InstallProgressFunc) ([]string, error) { return nil, nil },
+	})
+	model.width, model.height = 40, 10
+	model = model.finishDownload(downloadMessage{paths: []string{"/downloads/Example.otf"}})
+	view := model.View()
+	if !model.installPromptVisible() || !strings.Contains(view, "/fonts") || !strings.Contains(view, "[ Install ]") {
+		t.Fatalf("compact prompt hidden:\n%s", view)
+	}
+	assertViewFits(t, view, 40, 10)
+	updated, _ := model.Update(tea.WindowSizeMsg{Width: 20, Height: 5})
+	model = updated.(Model)
+	for _, key := range []string{"enter", "y", "y"} {
+		var command tea.Cmd
+		model, command = press(model, key)
+		if command != nil || model.installState != installPrompt {
+			t.Fatalf("undersized terminal accepted %q", key)
+		}
+	}
+	assertViewFits(t, model.View(), 20, 5)
+	updated, _ = model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	model = updated.(Model)
+	model, command := press(model, "enter")
+	if command == nil || model.installState != installRunning {
+		t.Fatal("enlarged visible prompt could not be confirmed")
+	}
+}
+
+func TestOverwriteRequiresVisibleQuestionAndSelection(t *testing.T) {
+	t.Parallel()
+	model := NewModel(nil, nil, false).WithInstaller(&Installer{
+		Dir: "/fonts", Install: func([]string, bool, InstallProgressFunc) ([]string, error) { return nil, nil },
+	})
+	model.width, model.height = 80, 16
+	var paths []string
+	for index := range 30 {
+		paths = append(paths, fmt.Sprintf("/downloads/font-%02d.otf", index))
+	}
+	model = model.finishDownload(downloadMessage{paths: paths})
+	model = model.finishInstall(installMessage{err: fakeConflict{names: []string{"font-00.otf"}}})
+	if !model.installPromptVisible() || !strings.Contains(model.View(), "[ Keep existing ]") {
+		t.Fatalf("overwrite question/default hidden:\n%s", model.View())
+	}
+	model, _ = press(model, "right")
+	for model.detailOffset > 0 {
+		model, _ = press(model, "k")
+	}
+	model, command := press(model, "enter")
+	if command != nil || model.installState != installConflict || !strings.Contains(model.View(), "[ Overwrite ]") || !strings.Contains(model.View(), "/fonts") {
+		t.Fatalf("hidden overwrite accepted or question not shown:\n%s", model.View())
+	}
+	model, command = press(model, "enter")
+	if command == nil || model.installState != installRunning {
+		t.Fatal("visible overwrite could not be confirmed")
 	}
 }
