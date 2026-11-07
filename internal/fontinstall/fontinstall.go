@@ -121,12 +121,30 @@ func InstallContext(ctx context.Context, directory string, sources []string, ove
 	if err != nil {
 		return nil, fmt.Errorf("Moji couldn't stage fonts in %s: %w", directory, err)
 	}
+	plans := make([]plannedCopy, 0, len(sources))
+	copied := false
 	defer func() {
 		if err := os.RemoveAll(staging); err != nil {
 			resultErr = errors.Join(resultErr, fmt.Errorf("Moji couldn't remove staging directory %s: %w", staging, err))
+			return
+		}
+		if copied {
+			// A partial overwrite can invalidate cached metadata even when the
+			// user cancels. Finish a short, best-effort refresh after cleanup.
+			progress(len(results), len(plans), true)
+			if ctx.Err() == nil {
+				refresh(ctx, directory)
+			}
+			if err := ctx.Err(); err != nil {
+				refreshCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+				defer cancel()
+				refresh(refreshCtx, directory)
+				if !errors.Is(resultErr, err) {
+					resultErr = errors.Join(resultErr, err)
+				}
+			}
 		}
 	}()
-	plans := make([]plannedCopy, 0, len(sources))
 	var conflicts []string
 	for _, source := range sources {
 		if err := ctx.Err(); err != nil {
@@ -174,7 +192,6 @@ func InstallContext(ctx context.Context, directory string, sources []string, ove
 		return nil, ConflictError{Directory: directory, Names: conflicts}
 	}
 	results = make([]Result, 0, len(plans))
-	copied := false
 	for index, plan := range plans {
 		progress(index, len(plans), false)
 		if err := ctx.Err(); err != nil {
@@ -182,11 +199,6 @@ func InstallContext(ctx context.Context, directory string, sources []string, ove
 		}
 		if !plan.existing {
 			if err := writeFont(plan.staged, plan.destination, plan.replace); err != nil {
-				if copied {
-					_ = os.RemoveAll(staging)
-					progress(index, len(plans), true)
-					refresh(ctx, directory)
-				}
 				return results, err
 			}
 			copied = true
@@ -194,11 +206,6 @@ func InstallContext(ctx context.Context, directory string, sources []string, ove
 		results = append(results, Result{Source: plan.source, Path: plan.destination, Existing: plan.existing})
 	}
 	progress(len(plans), len(plans), false)
-	if copied {
-		_ = os.RemoveAll(staging)
-		progress(len(plans), len(plans), true)
-		refresh(ctx, directory)
-	}
 	return results, ctx.Err()
 }
 
