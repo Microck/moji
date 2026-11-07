@@ -169,7 +169,7 @@ func (application App) runInteractive(ctx context.Context, current config.Config
 	if err != nil {
 		return application.fail(err, 1)
 	}
-	model := tui.NewLiveModel(events, application.interactiveDownloader(ctx, parsed), colorEnabled(), query, strings.ToLower(parsed.weight), current.Ranking, parsed.max).WithInstaller(interactiveInstaller())
+	model := tui.NewLiveModel(events, application.interactiveDownloader(ctx, parsed), colorEnabled(), query, strings.ToLower(parsed.weight), current.Ranking, parsed.max).WithInstaller(interactiveInstaller(ctx))
 	if err := tui.Run(application.Stdin, application.Stdout, model); err != nil {
 		return application.fail(fmt.Errorf("interactive interface: %w", err), 1)
 	}
@@ -187,7 +187,7 @@ func (application App) runHome(ctx context.Context, current config.Config, forma
 	model := tui.NewHomeModel(func(query string) (<-chan provider.Event, error) {
 		events, _, err := application.searchEvents(ctx, current, query, formats, parsed)
 		return events, err
-	}, application.interactiveDownloader(ctx, parsed), colorEnabled(), "", current.Ranking, parsed.max, homeHint).WithInstaller(interactiveInstaller())
+	}, application.interactiveDownloader(ctx, parsed), colorEnabled(), "", current.Ranking, parsed.max, homeHint).WithInstaller(interactiveInstaller(ctx))
 	if err := tui.Run(application.Stdin, application.Stdout, model); err != nil {
 		return application.fail(fmt.Errorf("interactive interface: %w", err), 1)
 	}
@@ -208,13 +208,14 @@ func (application App) interactiveDownloader(ctx context.Context, parsed options
 
 // interactiveInstaller offers to copy finished downloads into the user's font
 // directory. It returns nil where a plain copy cannot install a font.
-func interactiveInstaller() *tui.Installer {
+func interactiveInstaller(parent context.Context) *tui.Installer {
 	directory, ok := fontinstall.UserFontDir()
 	if !ok {
 		return nil
 	}
-	return &tui.Installer{Dir: directory, Install: func(paths []string, overwrite bool, progress tui.InstallProgressFunc) ([]string, error) {
-		results, err := fontinstall.Install(directory, paths, overwrite, fontinstall.Progress(progress))
+	ctx, cancel := context.WithCancel(parent)
+	return &tui.Installer{Dir: directory, Cancel: cancel, Install: func(paths []string, overwrite bool, progress tui.InstallProgressFunc) ([]string, error) {
+		results, err := fontinstall.InstallContext(ctx, directory, paths, overwrite, fontinstall.Progress(progress))
 		installed := make([]string, 0, len(results))
 		for _, result := range results {
 			installed = append(installed, result.Path)
