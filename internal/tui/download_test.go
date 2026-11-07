@@ -603,7 +603,9 @@ func TestInstallerShutdownCancelsAndWaitsForCleanup(t *testing.T) {
 	<-started
 	finished := make(chan struct{})
 	go func() {
-		shutdown()
+		if err := shutdown(); err != nil {
+			t.Errorf("clean cancellation: %v", err)
+		}
 		close(finished)
 	}()
 	<-ctx.Done()
@@ -627,5 +629,83 @@ func TestInstallerShutdownCancelsAndWaitsForCleanup(t *testing.T) {
 	}
 	if model.installer == original {
 		t.Fatal("shutdown management mutated shared installer")
+	}
+}
+
+func TestInstallerShutdownReportsJoinedCleanupError(t *testing.T) {
+	t.Parallel()
+	cleanupErr := errors.New("staging removal failed")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	started := make(chan struct{})
+	model, shutdown := NewModel(nil, nil, false).WithInstaller(&Installer{
+		Cancel: cancel,
+		Install: func([]string, bool, InstallProgressFunc) ([]string, error) {
+			close(started)
+			<-ctx.Done()
+			return nil, errors.Join(ctx.Err(), cleanupErr)
+		},
+	}).manageInstaller()
+	done := make(chan struct{})
+	go func() { defer close(done); _, _ = model.installer.Install(nil, false, nil) }()
+	<-started
+	shutdownErr := shutdown()
+	<-done
+	if !errors.Is(shutdownErr, cleanupErr) {
+		t.Fatalf("cleanup error lost: %v", shutdownErr)
+	}
+	uiErr := errors.New("terminal read failed")
+	combined := errors.Join(uiErr, shutdownErr)
+	if !errors.Is(combined, uiErr) || !errors.Is(combined, cleanupErr) {
+		t.Fatalf("combined errors lost: %v", combined)
+	}
+	if !cancellationOnly(fmt.Errorf("staging read: %w", context.Canceled)) {
+		t.Fatal("wrapped cancellation was not a clean exit")
+	}
+	if cancellationOnly(fmt.Errorf("staging cleanup: %w", errors.Join(context.Canceled, cleanupErr))) {
+		t.Fatal("wrapped joined cleanup failure was hidden")
+	}
+}
+
+func TestRunJoinsPendingCleanupAndTerminalErrors(t *testing.T) {
+	t.Parallel()
+	cleanupErr, uiErr := errors.New("staging cleanup failed"), errors.New("terminal failed")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	started, done := make(chan struct{}), make(chan struct{})
+	model := NewModel(nil, nil, false).WithInstaller(&Installer{
+		Cancel: cancel,
+		Install: func([]string, bool, InstallProgressFunc) ([]string, error) {
+			close(started)
+			<-ctx.Done()
+			return nil, errors.Join(ctx.Err(), cleanupErr)
+		},
+	})
+	err := runWithInstaller(model, func(managed Model) (tea.Model, error) {
+		go func() { defer close(done); _, _ = managed.installer.Install(nil, false, nil) }()
+		<-started
+		managed.installState = installRunning
+		return managed, uiErr
+	})
+	<-done
+	if !errors.Is(err, cleanupErr) || !errors.Is(err, uiErr) {
+		t.Fatalf("Run lost terminal or pending cleanup failure: %v", err)
+	}
+}
+
+func TestRunDoesNotRepeatPresentedInstallErrors(t *testing.T) {
+	t.Parallel()
+	model := NewModel(nil, nil, false).WithInstaller(&Installer{
+		Install: func([]string, bool, InstallProgressFunc) ([]string, error) {
+			return nil, errors.New("already displayed")
+		},
+	})
+	err := runWithInstaller(model, func(managed Model) (tea.Model, error) {
+		_, _ = managed.installer.Install(nil, false, nil)
+		managed.installState = installDone
+		return managed, nil
+	})
+	if err != nil {
+		t.Fatalf("presented install error repeated on exit: %v", err)
 	}
 }
