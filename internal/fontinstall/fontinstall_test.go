@@ -500,3 +500,57 @@ func TestCancellationDuringRefreshGetsBoundedRetry(t *testing.T) {
 		t.Fatalf("calls=%d results=%v err=%v", calls, results, err)
 	}
 }
+
+func TestCleanupFailureStillRefreshesCommittedFonts(t *testing.T) {
+	for _, cancelAfterCommit := range []bool{false, true} {
+		t.Run(fmt.Sprintf("canceled=%v", cancelAfterCommit), func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			sources, fonts := t.TempDir(), t.TempDir()
+			var paths []string
+			for _, name := range []string{"A.otf", "B.otf"} {
+				path := filepath.Join(sources, name)
+				if err := os.WriteFile(path, []byte("new"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(fonts, name), []byte("old"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				paths = append(paths, path)
+			}
+			cleanupErr := errors.New("staging cleanup denied")
+			removed, refreshed := false, false
+			previous := refresh
+			defer func() { refresh = previous }()
+			refresh = func(refreshCtx context.Context, directory string) {
+				refreshed = true
+				if !removed || refreshCtx.Err() != nil || directory != fonts {
+					t.Fatalf("removed=%v context=%v directory=%q", removed, refreshCtx.Err(), directory)
+				}
+				if cancelAfterCommit {
+					deadline, bounded := refreshCtx.Deadline()
+					if !bounded || time.Until(deadline) > 2*time.Second {
+						t.Fatal("unbounded cancellation refresh")
+					}
+				}
+			}
+			results, err := installContext(ctx, fonts, paths, true, func(done, _ int, refreshing bool) {
+				if cancelAfterCommit && done == 1 && !refreshing {
+					cancel()
+				}
+			}, func(staging string) error {
+				removed = true
+				if filepath.Dir(staging) != fonts || !strings.HasPrefix(filepath.Base(staging), ".moji-stage-") {
+					t.Fatalf("staging must remain hidden from fontconfig: %q", staging)
+				}
+				return cleanupErr
+			})
+			if !refreshed || !errors.Is(err, cleanupErr) || len(results) == 0 {
+				t.Fatalf("refreshed=%v results=%v error=%v", refreshed, results, err)
+			}
+			if cancelAfterCommit && (!errors.Is(err, context.Canceled) || len(results) != 1) {
+				t.Fatalf("partial cancellation lost: results=%v error=%v", results, err)
+			}
+		})
+	}
+}
