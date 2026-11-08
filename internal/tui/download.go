@@ -345,12 +345,15 @@ func (model Model) leaveDownloadResult() Model {
 func (model Model) finishInstall(message installMessage) Model {
 	model.progress = nil
 	var conflict InstallConflict
-	if errors.As(message.err, &conflict) && conflictOnly(message.err) {
-		model.installState = installConflict
-		// Overwriting is destructive, so the safe answer is the default.
-		model.promptChoice = 1
-		model.conflictNames = conflict.ConflictNames()
-		return model.focusInstallPrompt()
+	if errors.As(message.err, &conflict) {
+		if conflictOnly(message.err) {
+			model.installState = installConflict
+			// Overwriting is destructive, so the safe answer is the default.
+			model.promptChoice = 1
+			model.conflictNames = conflict.ConflictNames()
+			return model.focusInstallPrompt()
+		}
+		model.installExitErr = errors.Join(model.installExitErr, message.err)
 	}
 	model.installState = installDone
 	model.installPaths = message.paths
