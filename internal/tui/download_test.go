@@ -709,3 +709,45 @@ func TestRunDoesNotRepeatPresentedInstallErrors(t *testing.T) {
 		t.Fatalf("presented install error repeated on exit: %v", err)
 	}
 }
+
+func TestConflictWithCleanupFailureIsNotRetryable(t *testing.T) {
+	t.Parallel()
+	cleanupErr := errors.New("staging cleanup failed")
+	conflict := fakeConflict{names: []string{"font.otf"}}
+	for _, joinedErr := range []error{
+		errors.Join(conflict, cleanupErr),
+		fmt.Errorf("install: %w", errors.Join(conflict, cleanupErr)),
+	} {
+		for _, key := range []string{"y", "n", "q", "ctrl+c"} {
+			model := NewModel(nil, nil, false).WithInstaller(&Installer{
+				Dir:     "/fonts",
+				Install: func([]string, bool, InstallProgressFunc) ([]string, error) { return nil, joinedErr },
+			})
+			err := runWithInstaller(model, func(managed Model) (tea.Model, error) {
+				_, installErr := managed.installer.Install(nil, false, nil)
+				managed.screen = screenDownloadResult
+				managed = managed.finishInstall(installMessage{err: installErr})
+				if managed.installState != installDone || !errors.Is(managed.installErr, cleanupErr) {
+					t.Fatalf("cleanup failure was hidden behind conflict: %+v", managed.installErr)
+				}
+				view := strings.Join(managed.downloadResultLines(), "\n")
+				if !strings.Contains(view, "conflict") || !strings.Contains(view, cleanupErr.Error()) {
+					t.Fatalf("missing conflict or cleanup diagnostic: %s", view)
+				}
+				managed, _ = press(managed, key)
+				if managed.installState == installRunning {
+					t.Fatal("retried after failed cleanup")
+				}
+				return managed, nil
+			})
+			if !errors.Is(err, cleanupErr) {
+				t.Fatalf("key %s lost cleanup failure on exit: %v", key, err)
+			}
+		}
+	}
+	for _, err := range []error{conflict, fmt.Errorf("install: %w", conflict), errors.Join(conflict)} {
+		if !conflictOnly(err) {
+			t.Fatalf("ordinary conflict no longer retryable: %v", err)
+		}
+	}
+}
