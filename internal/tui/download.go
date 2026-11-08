@@ -345,7 +345,7 @@ func (model Model) leaveDownloadResult() Model {
 func (model Model) finishInstall(message installMessage) Model {
 	model.progress = nil
 	var conflict InstallConflict
-	if errors.As(message.err, &conflict) {
+	if errors.As(message.err, &conflict) && conflictOnly(message.err) {
 		model.installState = installConflict
 		// Overwriting is destructive, so the safe answer is the default.
 		model.promptChoice = 1
@@ -362,6 +362,32 @@ func (model Model) finishInstall(message installMessage) Model {
 		model.status = fmt.Sprintf("Installed %d file(s) to %s", len(message.paths), displayPath(model.installer.Dir))
 	}
 	return model
+}
+
+// A conflict is retryable only when it is the entire failure. A cleanup or
+// other error joined with it must be shown in full, not hidden by an overwrite
+// prompt. In particular, do not start another install after failed cleanup.
+func conflictOnly(err error) bool {
+	if err == nil {
+		return false
+	}
+	if joined, ok := err.(interface{ Unwrap() []error }); ok {
+		children := joined.Unwrap()
+		if len(children) == 0 {
+			return false
+		}
+		for _, child := range children {
+			if child != nil && !conflictOnly(child) {
+				return false
+			}
+		}
+		return true
+	}
+	if wrapped, ok := err.(interface{ Unwrap() error }); ok {
+		return conflictOnly(wrapped.Unwrap())
+	}
+	_, ok := err.(InstallConflict)
+	return ok
 }
 
 func (model Model) viewDownloading() string {
