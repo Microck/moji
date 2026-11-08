@@ -339,7 +339,15 @@ async function main(): Promise<void> {
 		} else {
 			console.log(`${manifest.name}@${manifest.version} already contains the verified archive; resuming publication.`);
 		}
-		validateArtifactIntegrity((await registryIntegrity(manifest.name, manifest.version)) ?? '', localIntegrity);
+		// npm can accept a publish before the version is visible in registry metadata.
+		let publishedIntegrity = await registryIntegrity(manifest.name, manifest.version);
+		for (let attempt = 0; publishedIntegrity === null && attempt < 30; attempt++) {
+			console.log('Waiting for npm to finish processing the published version...');
+			await new Promise((resolveWait) => setTimeout(resolveWait, 10_000));
+			publishedIntegrity = await registryIntegrity(manifest.name, manifest.version);
+		}
+		if (publishedIntegrity === null) throw new Error('npm accepted the package, but it is not visible after 5 minutes');
+		validateArtifactIntegrity(publishedIntegrity, localIntegrity);
 		const tag = await ensureAnnotatedTag(tagPreflight);
 		await ensureGitHubRelease(releasePreflight, tag, archive, localIntegrity);
 		if ((await inspectGitHubRelease(tag, archive, temporaryRoot, localIntegrity)) !== 'matching') {
