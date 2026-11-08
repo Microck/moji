@@ -70,6 +70,7 @@ type Model struct {
 	promptChoice   int
 	button         lipgloss.Style
 	installErr     error
+	installExitErr error // Joined conflict/cleanup failures survive later downloads.
 	brand          lipgloss.Style
 	accent         lipgloss.Style
 	faint          lipgloss.Style
@@ -1396,12 +1397,9 @@ func runWithInstaller(model Model, run func(Model) (tea.Model, error)) (err erro
 	final, err := run(model)
 	if finalModel, ok := final.(Model); ok {
 		// Completed install errors have already been presented by the TUI.
-		// Keep a conflict accompanied by another failure visible after exit
-		// too: unlike an ordinary conflict it cannot safely be retried.
-		var conflict InstallConflict
-		if errors.As(finalModel.installErr, &conflict) && !conflictOnly(finalModel.installErr) {
-			err = errors.Join(err, finalModel.installErr)
-		}
+		// Cleanup failures retained with conflicts must survive later downloads
+		// and installs, even if the last operation succeeded.
+		err = errors.Join(err, finalModel.installExitErr)
 		pendingInstall = finalModel.installState == installRunning
 	}
 	return err
