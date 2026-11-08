@@ -104,7 +104,11 @@ func Install(directory string, sources []string, overwrite bool, progress Progre
 // InstallContext is Install with cancellation. It returns only after removing
 // its staging directory (or reporting a cleanup error). Already committed fonts
 // are retained on cancellation.
-func InstallContext(ctx context.Context, directory string, sources []string, overwrite bool, progress Progress) (results []Result, resultErr error) {
+func InstallContext(ctx context.Context, directory string, sources []string, overwrite bool, progress Progress) ([]Result, error) {
+	return installContext(ctx, directory, sources, overwrite, progress, os.RemoveAll)
+}
+
+func installContext(ctx context.Context, directory string, sources []string, overwrite bool, progress Progress, removeStaging func(string) error) (results []Result, resultErr error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -124,13 +128,14 @@ func InstallContext(ctx context.Context, directory string, sources []string, ove
 	plans := make([]plannedCopy, 0, len(sources))
 	copied := false
 	defer func() {
-		if err := os.RemoveAll(staging); err != nil {
+		if err := removeStaging(staging); err != nil {
 			resultErr = errors.Join(resultErr, fmt.Errorf("Moji couldn't remove staging directory %s: %w", staging, err))
-			return
 		}
 		if copied {
 			// A partial overwrite can invalidate cached metadata even when the
 			// user cancels. Finish a short, best-effort refresh after cleanup.
+			// Fontconfig ignores dot-prefixed directories, so a failed removal
+			// of .moji-stage-* does not register uncommitted snapshots.
 			progress(len(results), len(plans), true)
 			if ctx.Err() == nil {
 				refresh(ctx, directory)
