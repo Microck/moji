@@ -100,6 +100,10 @@ jobs:
             eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
           fi
           brew --version
-          brew install --build-from-source ./Formula/moji.rb
-          brew test ./Formula/moji.rb
+          brew tap-new --no-git microck/release-validation
+          tap_dir="$(brew --repository microck/release-validation)"
+          cp Formula/moji.rb "$tap_dir/Formula/moji.rb"
+          cmp Formula/moji.rb "$tap_dir/Formula/moji.rb"
+          brew install --build-from-source microck/release-validation/moji
+          brew test microck/release-validation/moji
           test "$(moji --version)" = "0.8.1"
