@@ -14,6 +14,7 @@ import (
 	"github.com/microck/moji/internal/cache"
 	"github.com/microck/moji/internal/config"
 	"github.com/microck/moji/internal/download"
+	"github.com/microck/moji/internal/fontinstall"
 	"github.com/microck/moji/internal/provider"
 	"github.com/microck/moji/internal/rank"
 	"github.com/microck/moji/internal/tui"
@@ -168,7 +169,7 @@ func (application App) runInteractive(ctx context.Context, current config.Config
 	if err != nil {
 		return application.fail(err, 1)
 	}
-	model := tui.NewLiveModel(events, application.interactiveDownloader(ctx, parsed), colorEnabled(), query, strings.ToLower(parsed.weight), current.Ranking, parsed.max)
+	model := tui.NewLiveModel(events, application.interactiveDownloader(ctx, parsed), colorEnabled(), query, strings.ToLower(parsed.weight), current.Ranking, parsed.max).WithInstaller(interactiveInstaller(ctx))
 	if err := tui.Run(application.Stdin, application.Stdout, model); err != nil {
 		return application.fail(fmt.Errorf("interactive interface: %w", err), 1)
 	}
@@ -186,7 +187,7 @@ func (application App) runHome(ctx context.Context, current config.Config, forma
 	model := tui.NewHomeModel(func(query string) (<-chan provider.Event, error) {
 		events, _, err := application.searchEvents(ctx, current, query, formats, parsed)
 		return events, err
-	}, application.interactiveDownloader(ctx, parsed), colorEnabled(), "", current.Ranking, parsed.max, homeHint)
+	}, application.interactiveDownloader(ctx, parsed), colorEnabled(), "", current.Ranking, parsed.max, homeHint).WithInstaller(interactiveInstaller(ctx))
 	if err := tui.Run(application.Stdin, application.Stdout, model); err != nil {
 		return application.fail(fmt.Errorf("interactive interface: %w", err), 1)
 	}
@@ -196,13 +197,31 @@ func (application App) runHome(ctx context.Context, current config.Config, forma
 func (application App) interactiveDownloader(ctx context.Context, parsed options) tui.DownloadFunc {
 	downloader := download.Downloader{Client: application.Client, AllowInsecure: parsed.allowInsecure, AllowPrivate: application.allowPrivate}
 	health, healthAvailable := urlHealthStore()
-	return func(result provider.Result) (string, error) {
-		file, err := downloader.Download(ctx, result, expandHome(parsed.downloadDir))
+	return func(result provider.Result, progress tui.ProgressFunc) (string, error) {
+		file, err := downloader.DownloadWithProgress(ctx, result, expandHome(parsed.downloadDir), download.ProgressFunc(progress))
 		if err != nil && healthAvailable && download.IsInvalidContent(err) {
 			_ = health.MarkInvalidURL(resultHealthKey(result))
 		}
 		return file.Path, err
 	}
+}
+
+// interactiveInstaller offers to copy finished downloads into the user's font
+// directory. It returns nil where a plain copy cannot install a font.
+func interactiveInstaller(parent context.Context) *tui.Installer {
+	directory, ok := fontinstall.UserFontDir()
+	if !ok {
+		return nil
+	}
+	ctx, cancel := context.WithCancel(parent)
+	return &tui.Installer{Dir: directory, Cancel: cancel, Install: func(paths []string, overwrite bool, progress tui.InstallProgressFunc) ([]string, error) {
+		results, err := fontinstall.InstallContext(ctx, directory, paths, overwrite, fontinstall.Progress(progress))
+		installed := make([]string, 0, len(results))
+		for _, result := range results {
+			installed = append(installed, result.Path)
+		}
+		return installed, err
+	}, Supports: fontinstall.Supports}
 }
 
 func selectProviders(available map[string]provider.Provider, current config.Config, requested string) ([]provider.Provider, error) {

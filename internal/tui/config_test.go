@@ -70,7 +70,9 @@ func TestConfigModelMasksTokenAndFitsTerminal(t *testing.T) {
 }
 
 func TestConfigCompactLayoutPutsValuesBelowLabels(t *testing.T) {
-	model := NewConfigModel(config.Default(), filepath.Join(t.TempDir(), "config.yaml"), false)
+	current := config.Default()
+	current.DownloadDir = "/home/example/fonts"
+	model := NewConfigModel(current, filepath.Join(t.TempDir(), "config.yaml"), false)
 	updated, _ := model.Update(tea.WindowSizeMsg{Width: 40, Height: 16})
 	view := updated.(ConfigModel).View()
 	assertViewFits(t, view, 40, 16)

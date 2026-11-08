@@ -9,8 +9,10 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/microck/moji/internal/provider"
 )
@@ -315,5 +317,56 @@ func TestRollbackBatchMovesPreservesReplacedFile(t *testing.T) {
 	content, readErr := os.ReadFile(destination)
 	if readErr != nil || string(content) != "replacement" {
 		t.Fatalf("replacement=%q err=%v", content, readErr)
+	}
+}
+
+func TestDownloadWithProgressReportsBytes(t *testing.T) {
+	t.Parallel()
+	body := append([]byte("OTTO"), make([]byte, 60)...)
+	half := len(body) / 2
+	release := make(chan struct{})
+	server := httptest.NewTLSServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		response.Header().Set("Content-Length", strconv.Itoa(len(body)))
+		response.Write(body[:half])
+		response.(http.Flusher).Flush()
+		// Hold the remainder until the client reports progress; the timeout only
+		// keeps a broken implementation from hanging the test.
+		select {
+		case <-release:
+		case <-time.After(5 * time.Second):
+		}
+		response.Write(body[half:])
+	}))
+	defer server.Close()
+	var lastWritten, lastTotal int64 = -2, -2
+	calls := 0
+	partial := make(chan int64, 1)
+	_, err := (Downloader{Client: server.Client(), AllowPrivate: true}).DownloadWithProgress(context.Background(), provider.Result{
+		URL: server.URL, Source: "fixture", Filename: "Example.otf", Format: "otf",
+	}, t.TempDir(), func(written, total int64) {
+		calls++
+		lastWritten, lastTotal = written, total
+		if written > 0 && written < int64(len(body)) {
+			// Progress arrived while the rest of the body is still held back.
+			select {
+			case partial <- written:
+				close(release)
+			default:
+			}
+		}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case written := <-partial:
+		if written <= 0 || written > int64(half) {
+			t.Fatalf("in-flight progress written=%d, want 1..%d", written, half)
+		}
+	default:
+		t.Fatal("no progress was reported before the response finished")
+	}
+	if calls < 2 || lastWritten != int64(len(body)) || lastTotal != int64(len(body)) {
+		t.Fatalf("calls=%d written=%d total=%d", calls, lastWritten, lastTotal)
 	}
 }

@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"sort"
@@ -14,7 +15,9 @@ import (
 	"github.com/microck/moji/internal/rank"
 )
 
-type DownloadFunc func(provider.Result) (string, error)
+// DownloadFunc saves one result and returns its path. It reports transfer
+// progress through progress, which is never nil.
+type DownloadFunc func(result provider.Result, progress ProgressFunc) (string, error)
 
 type screen int
 
@@ -24,6 +27,8 @@ const (
 	screenPreview
 	screenHealth
 	screenConfirm
+	screenDownloading
+	screenDownloadResult
 )
 
 type Model struct {
@@ -52,6 +57,20 @@ type Model struct {
 	ranking        rank.Weights
 	maximum        int
 	downloader     DownloadFunc
+	installer      *Installer
+	progress       *downloadProgress
+	downloadID     int
+	spinnerFrame   int
+	downloadPaths  []string
+	retryResults   []provider.Result
+	downloadErr    error
+	installState   installState
+	installPaths   []string
+	conflictNames  []string
+	promptChoice   int
+	button         lipgloss.Style
+	installErr     error
+	installExitErr error // Joined conflict/cleanup failures survive later downloads.
 	brand          lipgloss.Style
 	accent         lipgloss.Style
 	faint          lipgloss.Style
@@ -86,6 +105,7 @@ func NewModel(results []provider.Result, downloader DownloadFunc, color bool) Mo
 		format: "all", providerStatus: make(map[string]string), providerStates: make(map[string]provider.State), ranking: rank.DefaultWeights(), screen: screenResults,
 		selectedFiles: make(map[int]bool),
 		selection:     lipgloss.NewStyle().Reverse(true),
+		button:        lipgloss.NewStyle().Reverse(true).Bold(true),
 	}
 	if color {
 		model.brand = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFD75F")).Bold(true)
@@ -97,6 +117,10 @@ func NewModel(results []provider.Result, downloader DownloadFunc, color bool) Mo
 		model.danger = lipgloss.NewStyle().Foreground(lipgloss.Color("#FF87AF"))
 		model.selection = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#FFFF87")).
+			Bold(true)
+		model.button = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#1C1C1C")).
+			Background(lipgloss.Color("#FFD75F")).
 			Bold(true)
 		model.providerStyles = map[string]lipgloss.Style{
 			"github":       lipgloss.NewStyle().Foreground(lipgloss.Color("#D7AFFF")),
@@ -159,16 +183,25 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return model, model.waitForEvent()
 	case downloadMessage:
-		if message.err != nil {
-			model.status = "Download failed: " + message.err.Error()
-		} else {
-			model.status = fmt.Sprintf("Downloaded %d file(s): %s", len(message.paths), strings.Join(message.paths, ", "))
+		return model.finishDownload(message), nil
+	case downloadTickMessage:
+		if !model.animating() || message.id != model.downloadID {
+			return model, nil
 		}
-		if model.screen == screenConfirm {
-			model.screen = model.returnScreen
-		}
-		return model, nil
+		model.spinnerFrame++
+		return model, downloadTick(model.downloadID)
+	case installMessage:
+		return model.finishInstall(message), nil
 	case tea.KeyMsg:
+		if model.screen == screenDownloading {
+			if message.String() == "ctrl+c" {
+				return model, tea.Quit
+			}
+			return model, nil
+		}
+		if model.screen == screenDownloadResult {
+			return model.updateDownloadResult(message)
+		}
 		if model.filtering {
 			switch message.String() {
 			case "esc":
@@ -192,7 +225,7 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		if model.screen == screenConfirm {
 			switch message.String() {
 			case "y", "Y", "enter":
-				return model, model.downloadSelected()
+				return model.startDownload()
 			case "n", "N", "esc":
 				model.screen = model.returnScreen
 			}
@@ -337,7 +370,7 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 				model.screen = screenConfirm
 				return model, nil
 			}
-			return model, model.downloadSelected()
+			return model.startDownload()
 		}
 	}
 	return model, nil
@@ -353,6 +386,12 @@ func (model Model) View() string {
 			context = "health"
 		}
 		return model.chrome(context, model.healthBody(), model.healthHelp())
+	}
+	if model.screen == screenDownloading {
+		return model.viewDownloading()
+	}
+	if model.screen == screenDownloadResult {
+		return model.viewDownloadResult()
 	}
 	if model.screen == screenConfirm {
 		body := fmt.Sprintf("\n  Download %d selected files?\n\n  Existing identical files will be reused.", model.selectedCount())
@@ -1023,7 +1062,7 @@ func (model *Model) refresh() {
 }
 
 func (model Model) capturePreview() previewSnapshot {
-	previewOpen := model.screen == screenPreview || model.screen == screenConfirm && model.returnScreen == screenPreview
+	previewOpen := model.screen == screenPreview || model.overPreview()
 	if !previewOpen || len(model.groups) == 0 {
 		return previewSnapshot{}
 	}
@@ -1053,8 +1092,13 @@ func (model *Model) restorePreview(snapshot previewSnapshot) {
 		}
 	}
 	if groupIndex < 0 {
-		model.screen = screenResults
-		model.detailOffset = 0
+		if model.screen == screenDownloading || model.screen == screenDownloadResult {
+			// Stay on the download screens; they return to the list instead.
+			model.returnScreen = screenResults
+		} else {
+			model.screen = screenResults
+			model.detailOffset = 0
+		}
 		model.previewWindow.home()
 		clear(model.selectedFiles)
 		return
@@ -1072,6 +1116,16 @@ func (model *Model) restorePreview(snapshot previewSnapshot) {
 		}
 	}
 	model.previewWindow.clamp(len(model.groups[groupIndex].Files), model.bodyHeight()-2)
+}
+
+// overPreview reports whether a confirm or download screen was opened from the
+// preview and will return to it.
+func (model Model) overPreview() bool {
+	switch model.screen {
+	case screenConfirm, screenDownloading, screenDownloadResult:
+		return model.returnScreen == screenPreview
+	}
+	return false
 }
 
 func (model Model) currentGroup() rank.ResultGroup {
@@ -1128,30 +1182,6 @@ func (model Model) selectedCount() int {
 		}
 	}
 	return count
-}
-
-func (model Model) downloadSelected() tea.Cmd {
-	group := model.currentGroup()
-	selected := make([]provider.Result, 0, len(group.Files))
-	for index, result := range group.Files {
-		if model.selectedFiles[index] {
-			selected = append(selected, result)
-		}
-	}
-	if len(selected) == 0 {
-		return nil
-	}
-	return func() tea.Msg {
-		paths := make([]string, 0, len(selected))
-		for _, result := range selected {
-			path, err := model.downloader(result)
-			if err != nil {
-				return downloadMessage{paths: paths, err: err}
-			}
-			paths = append(paths, path)
-		}
-		return downloadMessage{paths: paths}
-	}
 }
 
 func (model Model) previewContext() string {
@@ -1350,6 +1380,27 @@ func displayFormat(result provider.Result) string {
 }
 
 func Run(input io.Reader, output io.Writer, model Model) error {
-	_, err := tea.NewProgram(model, tea.WithInput(input), tea.WithOutput(output), tea.WithAltScreen()).Run()
+	return runWithInstaller(model, func(model Model) (tea.Model, error) {
+		return tea.NewProgram(model, tea.WithInput(input), tea.WithOutput(output), tea.WithAltScreen()).Run()
+	})
+}
+
+func runWithInstaller(model Model, run func(Model) (tea.Model, error)) (err error) {
+	model, finishInstall := model.manageInstaller()
+	pendingInstall := true
+	defer func() {
+		installErr := finishInstall()
+		if pendingInstall {
+			err = errors.Join(err, installErr)
+		}
+	}()
+	final, err := run(model)
+	if finalModel, ok := final.(Model); ok {
+		// Completed install errors have already been presented by the TUI.
+		// Cleanup failures retained with conflicts must survive later downloads
+		// and installs, even if the last operation succeeded.
+		err = errors.Join(err, finalModel.installExitErr)
+		pendingInstall = finalModel.installState == installRunning
+	}
 	return err
 }
