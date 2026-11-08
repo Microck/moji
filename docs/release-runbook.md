@@ -54,9 +54,18 @@ update:
 VERSION="$(node -p "JSON.parse(require('fs').readFileSync('package.json', 'utf8')).version")"
 curl -fsSLo moji.tgz https://registry.npmjs.org/@microck/moji/-/moji-$VERSION.tgz
 shasum -a 256 moji.tgz
-brew install --build-from-source ./Formula/moji.rb
-brew test ./Formula/moji.rb
+brew tap-new --no-git microck/release-validation
+TAP_DIR="$(brew --repository microck/release-validation)"
+cp Formula/moji.rb "$TAP_DIR/Formula/moji.rb"
+cmp Formula/moji.rb "$TAP_DIR/Formula/moji.rb"
+brew install --build-from-source microck/release-validation/moji
+brew test microck/release-validation/moji
 ```
+
+Homebrew requires formulae to be in a tap. Run the validation above in a fresh
+Homebrew environment or use a new temporary tap name if `microck/release-validation`
+already exists. The copied formula must match the candidate exactly; do not commit
+the formula update until installation and `brew test` pass.
 
 The formula lives in this repository, so users first run
 `brew tap microck/moji https://github.com/Microck/moji` and then install it as

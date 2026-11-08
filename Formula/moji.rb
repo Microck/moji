@@ -1,8 +1,8 @@
 class Moji < Formula
   desc "Cozy terminal font finder with safe downloads"
   homepage "https://github.com/Microck/moji"
-  url "https://registry.npmjs.org/@microck/moji/-/moji-0.7.0.tgz"
-  sha256 "2430859658fc26fe4da37bff6b27b0900dc28b9f6c92c16ebf26f083a2939afb"
+  url "https://registry.npmjs.org/@microck/moji/-/moji-0.8.1.tgz"
+  sha256 "cfee5c54106b2fa0332f3dd5ddb556a1a010dd5f6e402ea1f60a56d56e40ff44"
   license "MIT"
 
   def install
