@@ -70,6 +70,8 @@ func press(model Model, key string) (Model, tea.Cmd) {
 		message = tea.KeyMsg{Type: tea.KeyEnter}
 	case "esc":
 		message = tea.KeyMsg{Type: tea.KeyEsc}
+	case "ctrl+c":
+		message = tea.KeyMsg{Type: tea.KeyCtrlC}
 	}
 	updated, command := model.Update(message)
 	return updated.(Model), command
@@ -734,7 +736,16 @@ func TestConflictWithCleanupFailureIsNotRetryable(t *testing.T) {
 				if !strings.Contains(view, "conflict") || !strings.Contains(view, cleanupErr.Error()) {
 					t.Fatalf("missing conflict or cleanup diagnostic: %s", view)
 				}
-				managed, _ = press(managed, key)
+				var command tea.Cmd
+				managed, command = press(managed, key)
+				if key == "ctrl+c" {
+					if command == nil {
+						t.Fatal("Ctrl+C did not return a quit command")
+					}
+					if _, ok := command().(tea.QuitMsg); !ok {
+						t.Fatal("Ctrl+C did not produce tea.QuitMsg")
+					}
+				}
 				if managed.installState == installRunning {
 					t.Fatal("retried after failed cleanup")
 				}
@@ -749,5 +760,44 @@ func TestConflictWithCleanupFailureIsNotRetryable(t *testing.T) {
 		if !conflictOnly(err) {
 			t.Fatalf("ordinary conflict no longer retryable: %v", err)
 		}
+	}
+}
+
+func TestRunRetainsCleanupFailureAcrossLaterDownloadsAndInstalls(t *testing.T) {
+	t.Parallel()
+	cleanupErr := errors.New("staging removal failed")
+	conflict := fakeConflict{names: []string{"font.otf"}}
+	calls := 0
+	result := provider.Result{Filename: "font.otf", Format: "otf"}
+	model := NewModel([]provider.Result{result}, func(provider.Result, ProgressFunc) (string, error) {
+		return "/downloads/font.otf", nil
+	}, false).WithInstaller(&Installer{
+		Dir: "/fonts",
+		Install: func([]string, bool, InstallProgressFunc) ([]string, error) {
+			calls++
+			if calls == 1 {
+				return nil, errors.Join(conflict, cleanupErr)
+			}
+			return []string{"/fonts/font.otf"}, nil
+		},
+	})
+	uiErr := errors.New("terminal error after later install")
+	err := runWithInstaller(model, func(managed Model) (tea.Model, error) {
+		for attempt := 0; attempt < 2; attempt++ {
+			var command tea.Cmd
+			managed, command = managed.runDownload([]provider.Result{result})
+			managed = runDownload(t, managed, command)
+			managed, command = press(managed, "y")
+			managed = runInstall(t, managed, command)
+			managed, _ = press(managed, "q")
+		}
+		if calls != 2 || managed.installErr != nil || managed.installState != installDone {
+			t.Fatalf("later install did not succeed: calls=%d error=%v state=%v", calls, managed.installErr, managed.installState)
+		}
+		return managed, uiErr
+	})
+	var preservedConflict InstallConflict
+	if !errors.Is(err, cleanupErr) || !errors.Is(err, uiErr) || !errors.As(err, &preservedConflict) {
+		t.Fatalf("earlier conflict/cleanup or later terminal error lost: %v", err)
 	}
 }
