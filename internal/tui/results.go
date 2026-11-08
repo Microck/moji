@@ -1396,6 +1396,12 @@ func runWithInstaller(model Model, run func(Model) (tea.Model, error)) (err erro
 	final, err := run(model)
 	if finalModel, ok := final.(Model); ok {
 		// Completed install errors have already been presented by the TUI.
+		// Keep a conflict accompanied by another failure visible after exit
+		// too: unlike an ordinary conflict it cannot safely be retried.
+		var conflict InstallConflict
+		if errors.As(finalModel.installErr, &conflict) && !conflictOnly(finalModel.installErr) {
+			err = errors.Join(err, finalModel.installErr)
+		}
 		pendingInstall = finalModel.installState == installRunning
 	}
 	return err
