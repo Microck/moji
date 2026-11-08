@@ -60,3 +60,46 @@ jobs:
         env:
           MOJI_FONTTOOLS_CONFORMANCE: "1"
         run: npm run verify
+
+  homebrew-release:
+    name: Homebrew release (${{ matrix.os }})
+    if: github.event_name == 'workflow_dispatch'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+      HOMEBREW_NO_ANALYTICS: "1"
+      HOMEBREW_NO_INSTALL_CLEANUP: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.0
+        with:
+          persist-credentials: false
+      - name: Prepare published 0.8.1 formula candidate
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("Formula/moji.rb")
+          content = path.read_text()
+          old_url = "https://registry.npmjs.org/@microck/moji/-/moji-0.7.0.tgz"
+          old_sha = "2430859658fc26fe4da37bff6b27b0900dc28b9f6c92c16ebf26f083a2939afb"
+          assert content.count(old_url) == 1 and content.count(old_sha) == 1
+          path.write_text(content.replace(old_url, "https://registry.npmjs.org/@microck/moji/-/moji-0.8.1.tgz").replace(old_sha, "cfee5c54106b2fa0332f3dd5ddb556a1a010dd5f6e402ea1f60a56d56e40ff44"))
+          PY
+          git diff --check
+          git diff -- Formula/moji.rb
+      - name: Install and test published formula
+        shell: bash
+        run: |
+          if [ -x /home/linuxbrew/.linuxbrew/bin/brew ]; then
+            eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+          fi
+          brew --version
+          brew install --build-from-source ./Formula/moji.rb
+          brew test ./Formula/moji.rb
+          test "$(moji --version)" = "0.8.1"
