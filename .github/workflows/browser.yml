@@ -19,6 +19,10 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 24.8.0
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            tests/browser/package-lock.json
       - run: npm ci
       - run: npm ci --prefix tests/browser
       - run: npx tsc --project tests/browser/tsconfig.json
