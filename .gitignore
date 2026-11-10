@@ -14,3 +14,6 @@ tests/browser/.e2e/
 
 # Isolated browser-tool dependencies
 tests/browser/node_modules/
+
+# Isolated offline font regression build
+docs/.next-font-regression/
