@@ -15,7 +15,7 @@
     "fumadocs-mdx": "15.1.0",
     "fumadocs-ui": "npm:@fumadocs/base-ui@16.11.2",
     "lucide-react": "1.23.0",
-    "next": "16.2.10",
+    "next": "16.4.6",
     "react": "19.2.7",
     "react-dom": "19.2.7"
   },
@@ -26,7 +26,7 @@
     "@types/react": "19.2.17",
     "@types/react-dom": "19.2.3",
     "eslint": "9.39.4",
-    "eslint-config-next": "16.2.10",
+    "eslint-config-next": "16.4.6",
     "postcss": "8.5.16",
     "tailwindcss": "4.3.2",
     "typescript": "6.0.3"

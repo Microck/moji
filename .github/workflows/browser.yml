@@ -27,6 +27,8 @@ jobs:
       - run: npm ci --prefix tests/browser
       - run: npx tsc --project tests/browser/tsconfig.json
       - run: npm run docs:check
+      - name: Verify extensionless font response regression
+        run: node tests/fonts/extensionless.mjs
       - run: npm run docs:build
       - run: npx --no-install e2e-web install chromium --with-deps
         working-directory: tests/browser
